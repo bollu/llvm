@@ -34,3 +34,7 @@ INITIALIZE_PASS_END(GraphRewriteLegacyPass, "graphrewrite",
 Pass *llvm::createGraphRewriteLegacyPass() {
     return new GraphRewriteLegacyPass();
 }
+
+void llvm::initializeGraphRewrite(PassRegistry &Registry) {
+    initializeGraphRewriteLegacyPassPass(Registry);
+}

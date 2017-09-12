@@ -40,6 +40,9 @@ void initializeInstCombine(PassRegistry&);
 /// Initialize all passes linked into the IPO library.
 void initializeIPO(PassRegistry&);
 
+/// Initialize all passes linked into the graph rewrite library
+void initializeGraphRewrite(PassRegistry&);
+
 /// Initialize all passes linked into the Instrumentation library.
 void initializeInstrumentation(PassRegistry&);
 
