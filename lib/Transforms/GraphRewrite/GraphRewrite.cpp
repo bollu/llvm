@@ -38,3 +38,4 @@ Pass *llvm::createGraphRewriteLegacyPass() {
 void llvm::initializeGraphRewrite(PassRegistry &Registry) {
     initializeGraphRewriteLegacyPassPass(Registry);
 }
+

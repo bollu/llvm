@@ -10,6 +10,7 @@ set(LLVM_LINK_COMPONENTS
   Instrumentation
   Linker
   ObjCARCOpts
+  GraphRewrite
   ScalarOpts
   Support
   Target

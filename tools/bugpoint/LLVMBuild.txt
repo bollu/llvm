@@ -26,6 +26,7 @@ required_libraries =
  CodeGen
  IRReader
  IPO
+ GraphRewrite
  Instrumentation
  Linker
  ObjCARC

@@ -24,6 +24,7 @@ required_libraries =
  BitReader
  BitWriter
  CodeGen
+ GraphRewrite
  IRReader
  IPO
  Instrumentation
