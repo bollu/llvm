@@ -46,9 +46,20 @@ private:
     DominatorTree &DT;
     LoopInfo &LI;
     ScalarEvolution &SE;
+
+    PEGFunction *createAPEG(Function &F);
+};
+
+
+PEGFunction *GraphRewrite::createAPEG(Function &F) {
+    PEGFunction *PEGF = new PEGFunction(F);
+    for (BasicBlock &BB : F) {
+        DEBUG(dbgs() << "running on: " << BB.getName() << "\n");
+    };
 };
 
 bool GraphRewrite::run(Function &F) {
+  PEGFunction *PEGF = createAPEG(F);
   return false;   
 }
 //===----------------------------------------------------------------------===//
@@ -89,8 +100,9 @@ void llvm::initializeGraphRewrite(PassRegistry &Registry) {
 }
 
 void GraphRewriteLegacyPass::getAnalysisUsage(AnalysisUsage &AU) const {
-  AU.setPreservesCFG();
   AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<LoopInfoWrapperPass>();
+  AU.addRequired<ScalarEvolutionWrapperPass>();
 
 };
 

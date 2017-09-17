@@ -19,18 +19,19 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/InstCombine/InstCombineWorklist.h"
+#include "llvm/ADT/GraphTraits.h"
 
 namespace llvm {
 
 class PEGBasicBlock;
-class PEGInst;
+class PEGNode;
 class PEGFunction;
 class PEGOperand;
 class PEGOperand {
 
 };
 
-class PEGInst : public User, public ilist_node_with_parent<PEGInst, PEGBasicBlock,
+class PEGNode : public User, public ilist_node_with_parent<PEGNode, PEGBasicBlock,
                                     ilist_sentinel_tracking<true>> {
   PEGBasicBlock *Parent = nullptr;  // Pointer to the owning basic block.
   std::vector<PEGOperand *> Operands;
@@ -39,25 +40,44 @@ class PEGInst : public User, public ilist_node_with_parent<PEGInst, PEGBasicBloc
 
 // Structured very similar to machineBB;
 class PEGBasicBlock : public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
-  using PEGInsts = ilist<PEGInst, ilist_sentinel_tracking<true>>;
+  // Stores if this PEG is still an A-PEG.
+  bool APEG;
+  PEGFunction &PEGF;
+  using PEGInsts = ilist<PEGNode, ilist_sentinel_tracking<true>>;
   PEGInsts Insts;
   const BasicBlock *BB;
   std::vector<PEGBasicBlock *> Predecessors;
   std::vector<PEGBasicBlock *> Successors;
 
+
+
+  explicit PEGBasicBlock(PEGFunction &PEGF, const BasicBlock *BB) : 
+      PEGF(PEGF), BB(BB), APEG(true) {};
+
+    public:
   // Intrusive list support
   PEGBasicBlock() = default;
+  PEGBasicBlock(const PEGBasicBlock &other) = delete;
 
-  explicit PEGBasicBlock(PEGFunction &PEGF, const BasicBlock *BB);
-
-  ~PEGBasicBlock();
-
-  // MachineBasicBlocks are allocated and owned by MachineFunction.
-  friend class PEGFunction;
+  static PEGBasicBlock *createAPEG(PEGFunction &PEGF, const BasicBlock *BB) {
+      return new PEGBasicBlock(PEGF, BB);
+  }
+  ~PEGBasicBlock() {};
 };
 
+/*
+template <> struct GraphTraits<PEGBasicBlock*> {
+  using NodeRef = PEGBasicBlock *;
+  using ChildIteratorType = succ_iterator;
+
+  static NodeRef getEntryNode(PEGBasicBlock *BB) { return BB; }
+  static ChildIteratorType child_begin(NodeRef N) { return succ_begin(N); }
+  static ChildIteratorType child_end(NodeRef N) { return succ_end(N); }
+};
+*/
+
 class PEGFunction {
-  const Function *Fn;
+  const Function &Fn;
 
   // List of machine basic blocks in function
   using BasicBlockListType = ilist<PEGBasicBlock>;
@@ -67,16 +87,16 @@ class PEGFunction {
 
 
 public:
-  PEGFunction(const Function *Fn);
+  PEGFunction(const Function &Fn) : Fn(Fn) {};
   PEGFunction(const PEGFunction &) = delete;
   PEGFunction &operator=(const PEGFunction &) = delete;
   ~PEGFunction();
 
   /// getFunction - Return the LLVM function that this machine code represents
-  const Function *getFunction() const { return Fn; }
+  const Function &getFunction() const { return Fn; }
 
   /// getName - Return the name of the corresponding LLVM function.
-  StringRef getName() const;
+  StringRef getName() const { return Fn.getName(); }
 
 
 };
