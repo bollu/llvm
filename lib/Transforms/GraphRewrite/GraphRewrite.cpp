@@ -71,7 +71,7 @@ void PEGBasicBlock::print(raw_ostream &os) const {
 }
 
 PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, const BasicBlock *BB) :
-    APEG(true), Parent(Parent), BB(BB) {
+    PEGNode(PEGNodeKind::PEGNK_BB), APEG(true), Parent(Parent), BB(BB) {
         if (InsertBefore)
             Parent->getBasicBlockList().insert(InsertBefore->getIterator(), this);
         else
@@ -84,8 +84,7 @@ PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, c
 
 void PEGFunction::print(raw_ostream &os) const {
     for (const PEGBasicBlock &BB : BasicBlocks) {
-        errs() << "* " << BB.getName();
-        errs() << BB;
+        errs() << BB << "\n\n";
     }
 
 }
@@ -107,6 +106,7 @@ void PEGFunction::print(raw_ostream &os) const {
    static std::string getNodeLabel(const PEGNode *Node,
            const PEGFunction *) {
 
+       if (isa<PEGConditionNode>(Node)) assert(false);
        assert (Node);
 
        std::string Str;
@@ -194,6 +194,7 @@ SmallSet<const BasicBlock *, 4> filterSet(const SmallSet<const BasicBlock*, 4> &
 // Return the successor if the true, false branch are taken.
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const BasicBlock *, const BasicBlock*> getTrueFalseSuccessors(const BasicBlock *BB) {
+    errs() << "BB: " << *BB << "\n";
     assert(!BB->getSingleSuccessor());
 
     const TerminatorInst *TI = BB->getTerminator();
@@ -204,13 +205,12 @@ std::pair<const BasicBlock *, const BasicBlock*> getTrueFalseSuccessors(const Ba
 
 
 PEGNode *GraphRewrite::makeDecideNode(const BasicBlock *Cur, const SmallSet<const BasicBlock*, 4> &In, const Loop *Outer) const {
+
+    errs() << __PRETTY_FUNCTION__ << "\n";
+    errs() << "Cur: " << Cur->getName() << "\n";
+    errs() << "In:\n"; for(auto I : In) errs() << "\t-" << I->getName() << "\n";
     if (In.size() == 0) return nullptr; // not sure if this is correct.
     const BasicBlock *CommonDom = findCommonDominator(DT, In);
-    const BasicBlock *TrueBB, *FalseBB;
-
-    std::tie(TrueBB, FalseBB) = getTrueFalseSuccessors(CommonDom);
-    assert(TrueBB && "TrueBB uninitialized");
-    assert(FalseBB && "FalseBB uninitialized");
 
     const Loop *CommonDomLoop = LI.getLoopFor(CommonDom);
 
@@ -219,6 +219,14 @@ PEGNode *GraphRewrite::makeDecideNode(const BasicBlock *Cur, const SmallSet<cons
             for(const BasicBlock *BB : In)
                 return getPEGNodeFor(BB);
         }
+
+        assert(In.size() > 1);
+
+        const BasicBlock *TrueBB, *FalseBB;
+
+        std::tie(TrueBB, FalseBB) = getTrueFalseSuccessors(CommonDom);
+        assert(TrueBB && "TrueBB uninitialized");
+        assert(FalseBB && "FalseBB uninitialized");
 
         SmallSet<const BasicBlock *, 4> TrueNodes = filterSet(In,
                 [&](const BasicBlock *BB) {
@@ -249,7 +257,8 @@ PEGNode *GraphRewrite::computeInputs(const BasicBlock *BB) const {
     }
 
     SmallSet<const BasicBlock *, 4> In;
-    for(auto PredBB : predecessors(BB)) In.insert(PredBB);
+    errs() << __PRETTY_FUNCTION__ << "-" << BB->getName() << "\n";
+    for(auto PredBB : predecessors(BB)) { errs() << "Pred: " << PredBB->getName() << "\n"; In.insert(PredBB); }
     return makeDecideNode(BB, In, LI.getLoopFor(BB));
 }
 

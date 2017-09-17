@@ -31,6 +31,11 @@ class PEGFunction;
 
 class PEGNode {
         public:
+        enum PEGNodeKind {
+            PEGNK_Cond,
+            PEGNK_Phi,
+            PEGNK_BB
+        };
         using ChildrenType = SmallVector<PEGNode *, 2>;
         using iterator = ChildrenType::iterator;
         using const_iterator = ChildrenType::const_iterator;
@@ -59,11 +64,15 @@ class PEGNode {
                     " it fucks with ilist of BB");
         }
 
+		 PEGNodeKind getKind() const { return Kind; }
         friend raw_ostream &operator <<(raw_ostream &os, const PEGNode &N);
         protected:
-        PEGNode() {};
+        PEGNode(PEGNodeKind Kind) : Kind(Kind) {};
         virtual ~PEGNode() {};
         ChildrenType Children;
+
+        private:
+          const PEGNodeKind Kind;
 
     };
 // Provide graph traits for tranversing call graphs using standard graph
@@ -105,7 +114,7 @@ class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBloc
 
     public:
   // Intrusive list support
-  PEGBasicBlock() = default;
+  PEGBasicBlock() : PEGNode(PEGNode::PEGNK_BB) {};
   PEGBasicBlock(const PEGBasicBlock &other) = delete;
 
   static PEGBasicBlock *createAPEG(PEGFunction *Parent, const BasicBlock *BB) {
@@ -114,6 +123,10 @@ class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBloc
   void print(raw_ostream &os) const override;
   /// getName - Return the name of the corresponding LLVM basic block.
   StringRef getName() const override { return BB->getName(); }
+
+  static bool classof(const PEGNode *N) {
+      return N->getKind() == PEGNode::PEGNK_BB;
+  }
 };
 
 
@@ -122,7 +135,7 @@ class PEGConditionNode : public PEGNode {
         PEGBasicBlock *PEGBB;
     public:
         void print(raw_ostream &os) const override;
-        PEGConditionNode(PEGBasicBlock *PEGBB) : PEGBB(PEGBB) {
+        PEGConditionNode(PEGBasicBlock *PEGBB) : PEGNode(PEGNK_Cond), PEGBB(PEGBB) {
             assert(PEGBB);
             Children.clear();
             Children.push_back(PEGBB);
@@ -133,6 +146,10 @@ class PEGConditionNode : public PEGNode {
             OS << "cond- " << PEGBB->getName();
             return OS.str();
         }
+        static bool classof(const PEGNode *N) {
+            return N->getKind() == PEGNode::PEGNK_Cond;
+        }
+
 };
 
 class PEGPhiNode : public PEGNode {
@@ -142,7 +159,7 @@ class PEGPhiNode : public PEGNode {
     public:
     void print(raw_ostream &os) const override;
     PEGPhiNode(PEGConditionNode *Cond, PEGNode *True, PEGNode *False) :
-    True(True), False(False), Cond(Cond) {
+    PEGNode(PEGNK_Phi), True(True), False(False), Cond(Cond) {
         assert(True);
         assert(False);
         assert(Cond);
@@ -156,6 +173,10 @@ class PEGPhiNode : public PEGNode {
         raw_string_ostream OS(Str);
         OS << "phi " << Cond->getName() << " ? " << True->getName() << " : " << False->getName();
         return OS.str();
+    }
+
+    static bool classof(const PEGNode *N) {
+        return N->getKind() == PEGNode::PEGNK_Phi;
     }
 };
 
