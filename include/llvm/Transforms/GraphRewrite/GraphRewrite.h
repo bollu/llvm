@@ -54,6 +54,11 @@ class PEGNode {
                     " it fucks with ilist of BB");
         }
 
+        virtual StringRef getName() const {
+            report_fatal_error("expect children to implement this. Not marked as pure virtual because"
+                    " it fucks with ilist of BB");
+        }
+
         friend raw_ostream &operator <<(raw_ostream &os, const PEGNode &N);
         protected:
         PEGNode() {};
@@ -108,7 +113,7 @@ class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBloc
   }
   void print(raw_ostream &os) const override;
   /// getName - Return the name of the corresponding LLVM basic block.
-  StringRef getName() const { return BB->getName(); }
+  StringRef getName() const override { return BB->getName(); }
 };
 
 
@@ -122,6 +127,12 @@ class PEGConditionNode : public PEGNode {
             Children.clear();
             Children.push_back(PEGBB);
         };
+        StringRef getName() const override {
+            std::string Str;
+            raw_string_ostream OS(Str);
+            OS << "cond- " << PEGBB->getName();
+            return OS.str();
+        }
 };
 
 class PEGPhiNode : public PEGNode {
@@ -140,6 +151,12 @@ class PEGPhiNode : public PEGNode {
     const PEGNode *trueNode() const { return True; }
     const PEGNode *falseNode() const { return False; }
     const PEGNode *condNode() const { return Cond; }
+    StringRef getName() const override {
+        std::string Str;
+        raw_string_ostream OS(Str);
+        OS << "phi " << Cond->getName() << " ? " << True->getName() << " : " << False->getName();
+        return OS.str();
+    }
 };
 
 

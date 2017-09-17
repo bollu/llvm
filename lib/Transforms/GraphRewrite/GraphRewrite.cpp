@@ -49,14 +49,14 @@ raw_ostream &llvm::operator <<(raw_ostream &os, const PEGNode &N) {
 //===----------------------------------------------------------------------===//
 
 void PEGConditionNode::print(raw_ostream &os) const  {
-    os << "condition: " << PEGBB->getName();
+    os << getName();
 }
 
 //===----------------------------------------------------------------------===//
 // PEGPhiNode
 //===----------------------------------------------------------------------===//
 void PEGPhiNode::print(raw_ostream &os)  const {
-    os << "phi(" << *Cond << ", " << *True << ", " << *False << ")\n";
+    os << getName();
 }
 
 //===----------------------------------------------------------------------===//
@@ -84,8 +84,10 @@ PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, c
 
 void PEGFunction::print(raw_ostream &os) const {
     for (const PEGBasicBlock &BB : BasicBlocks) {
-        errs() << "- " << BB;
+        errs() << "* " << BB.getName();
+        errs() << BB;
     }
+
 }
  raw_ostream &llvm::operator <<(raw_ostream &os, const PEGFunction &F) {
      F.print(os);
@@ -151,6 +153,13 @@ private:
             report_fatal_error("expected PEG for BB: " + BB->getName());
         return It->second;
     }
+
+    PEGConditionNode *getConditionNodeFor(const BasicBlock *BB) const {
+        auto It = CondMap.find(BB);
+        if (It == CondMap.end())
+            report_fatal_error("expected Cond for BB: " + BB->getName());
+        return It->second;
+    }
 };
 
 const BasicBlock *findCommonDominator(DominatorTree &DT, const SmallSet<const BasicBlock *, 4> &In) {
@@ -185,8 +194,7 @@ SmallSet<const BasicBlock *, 4> filterSet(const SmallSet<const BasicBlock*, 4> &
 // Return the successor if the true, false branch are taken.
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const BasicBlock *, const BasicBlock*> getTrueFalseSuccessors(const BasicBlock *BB) {
-    if (auto *Succ = BB->getSingleSuccessor())
-        return std::make_pair(Succ, Succ);
+    assert(!BB->getSingleSuccessor());
 
     const TerminatorInst *TI = BB->getTerminator();
     const BranchInst *BI = cast<BranchInst>(TI);
@@ -224,11 +232,7 @@ PEGNode *GraphRewrite::makeDecideNode(const BasicBlock *Cur, const SmallSet<cons
                 });
         PEGNode *FalseNode = makeDecideNode(Cur, TrueNodes, Outer);
 
-        PEGConditionNode *Condition;
-        auto It = CondMap.find(CommonDom);
-        if (It == CondMap.end()) report_fatal_error("expected condition node for basic block");
-        Condition = It->second;
-
+        PEGConditionNode *Condition = getConditionNodeFor(CommonDom);
         return new PEGPhiNode(Condition, TrueNode, FalseNode);
     }
     else {
