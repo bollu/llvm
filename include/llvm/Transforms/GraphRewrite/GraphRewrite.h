@@ -21,60 +21,127 @@
 #include "llvm/Transforms/InstCombine/InstCombineWorklist.h"
 #include "llvm/ADT/GraphTraits.h"
 
+
+
 namespace llvm {
 
 class PEGBasicBlock;
 class PEGNode;
 class PEGFunction;
-class PEGOperand;
-class PEGOperand {
 
+class PEGNode {
+        public:
+        using ChildrenType = SmallVector<PEGNode *, 2>;
+        using iterator = ChildrenType::iterator;
+        using const_iterator = ChildrenType::const_iterator;
+
+        iterator begin() { return Children.begin(); }
+        const_iterator begin() const { return Children.begin(); }
+
+        iterator end() { return Children.begin(); }
+        const_iterator end() const { return Children.end(); }
+
+        int size() const {
+            return Children.size();
+        }
+
+        void setChild(PEGNode *Child) {
+            Children = { Child };
+        }
+
+        virtual void print(raw_ostream &os) const {
+            report_fatal_error("expect children to implement this. Not marked as pure virtual because"
+                    " it fucks with ilist of BB");
+        }
+
+        friend raw_ostream &operator <<(raw_ostream &os, const PEGNode &N);
+        protected:
+        PEGNode() {};
+        virtual ~PEGNode() {};
+        ChildrenType Children;
+
+    };
+// Provide graph traits for tranversing call graphs using standard graph
+// traversals.
+template <> struct GraphTraits<const PEGNode *> {
+  using NodeRef = const PEGNode *;
+  using ChildIteratorType = PEGNode::const_iterator;
+
+  static NodeRef getEntryNode(NodeRef N) { return N; }
+
+  static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
+
+  static ChildIteratorType child_end(NodeRef N) { return N->end(); }
+  static unsigned size(NodeRef N) { return N->size(); }
 };
 
-class PEGNode : public User, public ilist_node_with_parent<PEGNode, PEGBasicBlock,
-                                    ilist_sentinel_tracking<true>> {
-  PEGBasicBlock *Parent = nullptr;  // Pointer to the owning basic block.
-  std::vector<PEGOperand *> Operands;
+template <> struct GraphTraits<PEGNode *> {
+  using NodeRef = PEGNode *;
+  using ChildIteratorType = PEGNode::iterator;
+
+  static NodeRef getEntryNode(NodeRef N) { return N; }
+
+  static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
+
+  static ChildIteratorType child_end(NodeRef N) { return N->end(); }
+  static unsigned size(NodeRef N) { return N->size(); }
 };
 
 
 // Structured very similar to machineBB;
-class PEGBasicBlock : public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
+class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
   // Stores if this PEG is still an A-PEG.
   bool APEG;
-  PEGFunction &PEGF;
-  using PEGInsts = ilist<PEGNode, ilist_sentinel_tracking<true>>;
-  PEGInsts Insts;
+  PEGFunction *Parent;
   const BasicBlock *BB;
   std::vector<PEGBasicBlock *> Predecessors;
-  std::vector<PEGBasicBlock *> Successors;
 
-
-
-  explicit PEGBasicBlock(PEGFunction &PEGF, const BasicBlock *BB) : 
-      PEGF(PEGF), BB(BB), APEG(true) {};
+  explicit PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, const BasicBlock *BB);
 
     public:
   // Intrusive list support
   PEGBasicBlock() = default;
   PEGBasicBlock(const PEGBasicBlock &other) = delete;
 
-  static PEGBasicBlock *createAPEG(PEGFunction &PEGF, const BasicBlock *BB) {
-      return new PEGBasicBlock(PEGF, BB);
+  static PEGBasicBlock *createAPEG(PEGFunction *Parent, const BasicBlock *BB) {
+      return new PEGBasicBlock(Parent, nullptr, BB);
   }
-  ~PEGBasicBlock() {};
+  void print(raw_ostream &os) const override;
+  /// getName - Return the name of the corresponding LLVM basic block.
+  StringRef getName() const { return BB->getName(); }
 };
 
-/*
-template <> struct GraphTraits<PEGBasicBlock*> {
-  using NodeRef = PEGBasicBlock *;
-  using ChildIteratorType = succ_iterator;
 
-  static NodeRef getEntryNode(PEGBasicBlock *BB) { return BB; }
-  static ChildIteratorType child_begin(NodeRef N) { return succ_begin(N); }
-  static ChildIteratorType child_end(NodeRef N) { return succ_end(N); }
+class PEGConditionNode : public PEGNode {
+    private:
+        PEGBasicBlock *PEGBB;
+    public:
+        void print(raw_ostream &os) const override;
+        PEGConditionNode(PEGBasicBlock *PEGBB) : PEGBB(PEGBB) {
+            assert(PEGBB);
+            Children.clear();
+            Children.push_back(PEGBB);
+        };
 };
-*/
+
+class PEGPhiNode : public PEGNode {
+    PEGNode *True, *False;
+    PEGConditionNode *Cond;
+
+    public:
+    void print(raw_ostream &os) const override;
+    PEGPhiNode(PEGConditionNode *Cond, PEGNode *True, PEGNode *False) :
+    True(True), False(False), Cond(Cond) {
+        assert(True);
+        assert(False);
+        assert(Cond);
+        Children = {Cond, True, False};
+    }
+    const PEGNode *trueNode() const { return True; }
+    const PEGNode *falseNode() const { return False; }
+    const PEGNode *condNode() const { return Cond; }
+};
+
 
 class PEGFunction {
   const Function &Fn;
@@ -92,14 +159,72 @@ public:
   PEGFunction &operator=(const PEGFunction &) = delete;
   ~PEGFunction();
 
+  void print(raw_ostream &os) const;
+  friend raw_ostream &operator <<(raw_ostream &os, const PEGFunction &F);
   /// getFunction - Return the LLVM function that this machine code represents
   const Function &getFunction() const { return Fn; }
+  using iterator = BasicBlockListType::iterator;
+  using const_iterator = BasicBlockListType::const_iterator;
+
+  const BasicBlockListType &getBasicBlockList() const { return BasicBlocks; }
+        BasicBlockListType &getBasicBlockList()       { return BasicBlocks; }
+
+  iterator                begin()       { return BasicBlocks.begin(); }
+  const_iterator          begin() const { return BasicBlocks.begin(); }
+  iterator                end  ()       { return BasicBlocks.end();   }
+  const_iterator          end  () const { return BasicBlocks.end();   }
+
+  size_t                   size() const { return BasicBlocks.size();  }
+  bool                    empty() const { return BasicBlocks.empty(); }
+  const PEGBasicBlock       &front() const { return BasicBlocks.front(); }
+        PEGBasicBlock       &front()       { return BasicBlocks.front(); }
+  const PEGBasicBlock        &back() const { return BasicBlocks.back();  }
+        PEGBasicBlock        &back()       { return BasicBlocks.back();  }
+
+
 
   /// getName - Return the name of the corresponding LLVM function.
   StringRef getName() const { return Fn.getName(); }
 
-
 };
+
+ template <> struct GraphTraits<const PEGFunction*> :
+  public GraphTraits<const PEGNode*> {
+  static NodeRef getEntryNode(const PEGFunction *F) { return &F->front(); }
+
+  // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
+  using nodes_iterator = pointer_iterator<PEGFunction::const_iterator>;
+
+  static nodes_iterator nodes_begin(const PEGFunction *F) {
+    return nodes_iterator(F->begin());
+  }
+
+  static nodes_iterator nodes_end(const PEGFunction *F) {
+    return nodes_iterator(F->end());
+  }
+
+  static size_t size(const PEGFunction *F) { return F->size(); }
+};
+
+
+ template <> struct GraphTraits<PEGFunction*> : public GraphTraits<PEGNode*> {
+  // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
+  using nodes_iterator = PEGFunction::iterator;
+
+  static NodeRef getEntryNode(PEGFunction *F) { return &F->front(); }
+
+
+  static nodes_iterator nodes_begin(PEGFunction *F) {
+    return nodes_iterator(F->begin());
+  }
+
+  static nodes_iterator nodes_end(PEGFunction *F) {
+    return nodes_iterator(F->end());
+  }
+
+  static size_t size(PEGFunction *F) { return F->size(); }
+};
+
 
 class GraphRewritePass : public PassInfoMixin<GraphRewritePass> {
 
