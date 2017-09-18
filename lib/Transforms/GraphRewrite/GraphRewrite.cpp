@@ -40,6 +40,9 @@ DotPEG("dot-peg", cl::init(false), cl::Hidden, cl::ZeroOrMore,
 //===----------------------------------------------------------------------===//
 // PEGNode
 //===----------------------------------------------------------------------===//
+PEGNode::PEGNode(PEGNodeKind Kind, PEGFunction *Parent, const StringRef Name) : Parent(Parent), Kind(Kind), Name(Name) {
+            Parent->getNodesList().push_back(this);
+}
 raw_ostream &llvm::operator <<(raw_ostream &os, const PEGNode &N) {
     N.print(os);
     return os;
@@ -70,12 +73,8 @@ void PEGBasicBlock::print(raw_ostream &os) const {
         }
 }
 
-PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, const BasicBlock *BB) :
-    PEGNode(PEGNodeKind::PEGNK_BB), APEG(true), Parent(Parent), BB(BB) {
-        if (InsertBefore)
-            Parent->getBasicBlockList().insert(InsertBefore->getIterator(), this);
-        else
-            Parent->getBasicBlockList().push_back(this);
+PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, const BasicBlock *BB) :
+    PEGNode(PEGNodeKind::PEGNK_BB, Parent, BB->getName()), APEG(true), Parent(Parent), BB(BB) {
     };
 
 //===----------------------------------------------------------------------===//
@@ -83,8 +82,8 @@ PEGBasicBlock::PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, c
 //===----------------------------------------------------------------------===//
 
 void PEGFunction::print(raw_ostream &os) const {
-    for (const PEGBasicBlock &BB : BasicBlocks) {
-        errs() << BB << "\n\n";
+    for (const PEGNode &N: Nodes) {
+        errs() << N << "\n\n";
     }
 
 }
@@ -106,12 +105,11 @@ void PEGFunction::print(raw_ostream &os) const {
    static std::string getNodeLabel(const PEGNode *Node,
            const PEGFunction *) {
 
-       if (isa<PEGConditionNode>(Node)) assert(false);
        assert (Node);
 
        std::string Str;
        raw_string_ostream OS(Str);
-       Node->print(OS);
+       OS << Node->getName();
 
        return OS.str();
 

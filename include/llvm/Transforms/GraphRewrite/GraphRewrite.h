@@ -29,7 +29,7 @@ class PEGBasicBlock;
 class PEGNode;
 class PEGFunction;
 
-class PEGNode {
+class PEGNode :  public ilist_node_with_parent<PEGNode, PEGFunction> {
         public:
         enum PEGNodeKind {
             PEGNK_Cond,
@@ -59,20 +59,24 @@ class PEGNode {
                     " it fucks with ilist of BB");
         }
 
-        virtual StringRef getName() const {
-            report_fatal_error("expect children to implement this. Not marked as pure virtual because"
-                    " it fucks with ilist of BB");
+        StringRef getName() const {
+            return Name;
         }
 
-		 PEGNodeKind getKind() const { return Kind; }
+        PEGNodeKind getKind() const { return Kind; }
         friend raw_ostream &operator <<(raw_ostream &os, const PEGNode &N);
-        protected:
-        PEGNode(PEGNodeKind Kind) : Kind(Kind) {};
         virtual ~PEGNode() {};
+
+        PEGFunction *getParent() { return Parent; }
+
+        protected:
+        PEGNode(PEGNodeKind Kind, PEGFunction *Parent, const StringRef Name);
         ChildrenType Children;
 
         private:
-          const PEGNodeKind Kind;
+        PEGFunction *Parent;
+        std::string Name;
+        const PEGNodeKind Kind;
 
     };
 // Provide graph traits for tranversing call graphs using standard graph
@@ -103,26 +107,22 @@ template <> struct GraphTraits<PEGNode *> {
 
 
 // Structured very similar to machineBB;
-class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
+class PEGBasicBlock : public PEGNode {
   // Stores if this PEG is still an A-PEG.
   bool APEG;
   PEGFunction *Parent;
   const BasicBlock *BB;
   std::vector<PEGBasicBlock *> Predecessors;
 
-  explicit PEGBasicBlock(PEGFunction *Parent, PEGBasicBlock *InsertBefore, const BasicBlock *BB);
 
     public:
-  // Intrusive list support
-  PEGBasicBlock() : PEGNode(PEGNode::PEGNK_BB) {};
+  explicit PEGBasicBlock(PEGFunction *Parent, const BasicBlock *BB);
   PEGBasicBlock(const PEGBasicBlock &other) = delete;
 
   static PEGBasicBlock *createAPEG(PEGFunction *Parent, const BasicBlock *BB) {
-      return new PEGBasicBlock(Parent, nullptr, BB);
+      return new PEGBasicBlock(Parent, BB);
   }
   void print(raw_ostream &os) const override;
-  /// getName - Return the name of the corresponding LLVM basic block.
-  StringRef getName() const override { return BB->getName(); }
 
   static bool classof(const PEGNode *N) {
       return N->getKind() == PEGNode::PEGNK_BB;
@@ -133,19 +133,17 @@ class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBloc
 class PEGConditionNode : public PEGNode {
     private:
         PEGBasicBlock *PEGBB;
+
+    static std::string makeName(const PEGBasicBlock *BB) {
+        return ("cond(" + BB->getName() + ")").str();
+    }
     public:
         void print(raw_ostream &os) const override;
-        PEGConditionNode(PEGBasicBlock *PEGBB) : PEGNode(PEGNK_Cond), PEGBB(PEGBB) {
+        PEGConditionNode(PEGBasicBlock *PEGBB) : PEGNode(PEGNK_Cond, PEGBB->getParent(), makeName(PEGBB)), PEGBB(PEGBB) {
             assert(PEGBB);
             Children.clear();
             Children.push_back(PEGBB);
         };
-        StringRef getName() const override {
-            std::string Str;
-            raw_string_ostream OS(Str);
-            OS << "cond- " << PEGBB->getName();
-            return OS.str();
-        }
         static bool classof(const PEGNode *N) {
             return N->getKind() == PEGNode::PEGNK_Cond;
         }
@@ -156,24 +154,22 @@ class PEGPhiNode : public PEGNode {
     PEGNode *True, *False;
     PEGConditionNode *Cond;
 
+    static std::string makeName(const PEGNode *Cond, const PEGNode *True, const PEGNode *False) {
+        return ("phi(" + Cond->getName() + ", " + True->getName() + ", " + False->getName() + ")").str();
+    }
+
     public:
     void print(raw_ostream &os) const override;
     PEGPhiNode(PEGConditionNode *Cond, PEGNode *True, PEGNode *False) :
-    PEGNode(PEGNK_Phi), True(True), False(False), Cond(Cond) {
+    PEGNode(PEGNK_Phi, Cond->getParent(), makeName(Cond, True, False)), True(True), False(False), Cond(Cond) {
         assert(True);
         assert(False);
         assert(Cond);
         Children = {Cond, True, False};
     }
-    const PEGNode *trueNode() const { return True; }
-    const PEGNode *falseNode() const { return False; }
-    const PEGNode *condNode() const { return Cond; }
-    StringRef getName() const override {
-        std::string Str;
-        raw_string_ostream OS(Str);
-        OS << "phi " << Cond->getName() << " ? " << True->getName() << " : " << False->getName();
-        return OS.str();
-    }
+    // const PEGNode *trueNode() const { return True; }
+    // const PEGNode *falseNode() const { return False; }
+    // const PEGNode *condNode() const { return Cond; }
 
     static bool classof(const PEGNode *N) {
         return N->getKind() == PEGNode::PEGNK_Phi;
@@ -185,10 +181,8 @@ class PEGFunction {
   const Function &Fn;
 
   // List of machine basic blocks in function
-  using BasicBlockListType = ilist<PEGBasicBlock>;
-  BasicBlockListType BasicBlocks;
-
-  std::vector<PEGBasicBlock*> MBBNumbering;
+  using NodesListType = ilist<PEGNode>;
+  NodesListType Nodes;
 
 
 public:
@@ -201,23 +195,23 @@ public:
   friend raw_ostream &operator <<(raw_ostream &os, const PEGFunction &F);
   /// getFunction - Return the LLVM function that this machine code represents
   const Function &getFunction() const { return Fn; }
-  using iterator = BasicBlockListType::iterator;
-  using const_iterator = BasicBlockListType::const_iterator;
+  using iterator = NodesListType::iterator;
+  using const_iterator = NodesListType::const_iterator;
 
-  const BasicBlockListType &getBasicBlockList() const { return BasicBlocks; }
-        BasicBlockListType &getBasicBlockList()       { return BasicBlocks; }
+  const NodesListType &getNodesList() const { return Nodes; }
+        NodesListType &getNodesList()       { return Nodes; }
 
-  iterator                begin()       { return BasicBlocks.begin(); }
-  const_iterator          begin() const { return BasicBlocks.begin(); }
-  iterator                end  ()       { return BasicBlocks.end();   }
-  const_iterator          end  () const { return BasicBlocks.end();   }
+  iterator                begin()       { return Nodes.begin(); }
+  const_iterator          begin() const { return Nodes.begin(); }
+  iterator                end  ()       { return Nodes.end();   }
+  const_iterator          end  () const { return Nodes.end();   }
 
-  size_t                   size() const { return BasicBlocks.size();  }
-  bool                    empty() const { return BasicBlocks.empty(); }
-  const PEGBasicBlock       &front() const { return BasicBlocks.front(); }
-        PEGBasicBlock       &front()       { return BasicBlocks.front(); }
-  const PEGBasicBlock        &back() const { return BasicBlocks.back();  }
-        PEGBasicBlock        &back()       { return BasicBlocks.back();  }
+  size_t                   size() const { return Nodes.size();  }
+  bool                    empty() const { return Nodes.empty(); }
+  const PEGNode       &front() const { return Nodes.front(); }
+        PEGNode       &front()       { return Nodes.front(); }
+  const PEGNode        &back() const { return Nodes.back();  }
+        PEGNode        &back()       { return Nodes.back();  }
 
 
 
@@ -228,6 +222,7 @@ public:
 
  template <> struct GraphTraits<const PEGFunction*> :
   public GraphTraits<const PEGNode*> {
+  using NodeRef = const PEGNode *;
   static NodeRef getEntryNode(const PEGFunction *F) { return &F->front(); }
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
