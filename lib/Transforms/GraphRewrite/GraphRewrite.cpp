@@ -236,7 +236,7 @@ PEGNode *GraphRewrite::makeDecideNode(const BasicBlock *Cur, const SmallSet<cons
                 [&](const BasicBlock *BB) {
                 return isPotentiallyReachable(FalseBB, BB, &DT, &LI);
                 });
-        PEGNode *FalseNode = makeDecideNode(Cur, TrueNodes, Outer);
+        PEGNode *FalseNode = makeDecideNode(Cur, FalseNodes, Outer);
 
         PEGConditionNode *Condition = getConditionNodeFor(CommonDom);
         return new PEGPhiNode(Condition, TrueNode, FalseNode);
