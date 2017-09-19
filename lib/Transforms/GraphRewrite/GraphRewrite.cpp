@@ -141,19 +141,85 @@ ConstLoopSet makeConstLoopSet(const Loop *L) {
   return LS;
 };
 
-
 // using BBSet = SmallSet<const BasicBlock *, 4>;
-using BBEdge = Use;
-using BBEdgeSet = SmallSet<const BBEdge *, 4>;
+class BBEdge {
+private:
+  const TerminatorInst *SourceTI;
+  const BasicBlock *Dest;
 
-using ValueFn = std::function<PEGNode*(const BBEdge&)>;
+  BBEdge(const TerminatorInst *TI, const BasicBlock *Dest)
+      : SourceTI(TI), Dest(Dest){};
+
+public:
+  Optional<const BasicBlock *> getSource() const {
+    if (SourceTI)
+      return Optional<const BasicBlock *>(SourceTI->getParent());
+    return Optional<const BasicBlock *>(None);
+  }
+
+  const BasicBlock *getDest() const { return Dest; }
+
+  static BBEdge create(const TerminatorInst *SourceTI, const BasicBlock *Dest) {
+    assert(SourceTI);
+    assert(Dest);
+
+    return BBEdge(SourceTI, Dest);
+  }
+
+  static BBEdge create(const BasicBlock *Source, const BasicBlock *Dest) {
+    const TerminatorInst *Terminator = Source->getTerminator();
+    assert(Terminator);
+
+    for (const Use &U : Terminator->operands()) {
+      if (U.get() == Dest) {
+        return BBEdge(Terminator, Dest);
+      }
+    }
+    assert(false);
+  }
+
+  // Make an edge with no source but only dest into given edge.
+  // Use with great caution.
+  static BBEdge makeEntryEdge(const BasicBlock *Dest) {
+    assert(Dest);
+    return BBEdge(nullptr, Dest);
+  }
+
+  bool operator==(const BBEdge &other) const {
+    return Dest == other.Dest && SourceTI == other.SourceTI;
+  }
+
+  bool operator<(const BBEdge &other) const {
+    return Dest < other.Dest || SourceTI < other.SourceTI;
+  }
+
+  friend raw_ostream &operator<<(raw_ostream &, const BBEdge &E);
+};
+
+raw_ostream &operator<<(raw_ostream &os, const BBEdge &E) {
+  if (!E.getSource())
+    os << "nullptr";
+  else
+    os << E.getSource().getValue()->getName();
+
+  os << " --> ";
+
+  assert(E.getDest());
+  os << E.getDest()->getName();
+
+  return os;
+}
+using BBEdgeSet = std::set<BBEdge>;
+
+using ValueFn = std::function<PEGNode *(const BBEdge &)>;
+using BBMapTy = std::map<const BasicBlock *, PEGBasicBlock *>;
 
 // Pass code
 // Modeled after EarlyCSE.
 class GraphRewrite {
 public:
   GraphRewrite(DominatorTree &DT, LoopInfo &LI, ScalarEvolution &SE)
-      : DT(DT), LI(LI), SE(SE) {}
+      : DT(DT), LI(LI), SE(SE), RootEdge(None), F(nullptr) {}
 
   bool run(Function &F);
 
@@ -161,20 +227,51 @@ private:
   DominatorTree &DT;
   LoopInfo &LI;
   ScalarEvolution &SE;
+  Optional<BBEdge> RootEdge;
+  Function *F;
 
-  std::map<const BasicBlock *, PEGBasicBlock *> BBMap;
+  BBMapTy BBMap;
   std::map<const BasicBlock *, PEGConditionNode *> CondMap;
 
   PEGFunction *createAPEG(const Function &F);
   PEGNode *computeInputs(const BasicBlock *BB,
                          bool fromInsideLoop = false) const;
   BBEdgeSet computeBreakEdges(const Loop *L) const;
-  PEGNode *makeBreakCondition(const BasicBlock *Cur, const Loop *L, BBEdgeSet BreakBBs, ConstLoopSet Outer) const;
+  PEGNode *makeBreakCondition(const BasicBlock *Cur, const Loop *L,
+                              BBEdgeSet BreakBBs, ConstLoopSet Outer) const;
   PEGNode *computeInputsFromInsideLoop(const BasicBlock *BB) const;
-  PEGNode *makeDecideNode(BBEdge &Source,
-                          BBEdgeSet &In,
-                          ValueFn VF,
+  PEGNode *makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
                           ConstLoopSet Outer) const;
+
+  BBEdgeSet getInEdges(const BasicBlock *BB) const {
+    BBEdgeSet Edges;
+    if (BB == &F->getEntryBlock()) {
+      Edges.insert(*RootEdge);
+      return Edges;
+    };
+
+    for (const BasicBlock *Pred : predecessors(BB)) {
+      Edges.insert(BBEdge::create(Pred, BB));
+    }
+    return Edges;
+  };
+
+  static ValueFn createValueFnGetEdgeSource(const BBMapTy &BBM,
+                                            const BBEdge &RootEdge) {
+    return [&](const BBEdge &E) -> PEGNode * {
+      const BasicBlock *BB = nullptr;
+      if (E == RootEdge)
+        BB = E.getDest();
+      else
+        BB = *E.getSource();
+
+      assert(BB && "expected source BB to find corresponding PEGNode for");
+      auto It = BBM.find(BB);
+      if (It == BBM.end())
+        assert(false && "unable to find BB in BBMap");
+      return It->second;
+    };
+  }
 
   PEGBasicBlock *getPEGNodeFor(const BasicBlock *BB) const {
     auto It = BBMap.find(BB);
@@ -192,45 +289,39 @@ private:
 };
 
 const BasicBlock *useToSourceBB(const Use &U) {
-    return cast<BasicBlock>(U.get());
+  return cast<BasicBlock>(U.get());
 }
 
-BasicBlock *useToSourceBB(Use &U) {
-    return cast<BasicBlock>(U.get());
-}
+BasicBlock *useToSourceBB(Use &U) { return cast<BasicBlock>(U.get()); }
 
-const BasicBlock *
-findCommonDominator(DominatorTree &DT,
-                    BBEdgeSet &In) {
+const BasicBlock *findCommonDominator(DominatorTree &DT, BBEdgeSet &In) {
   assert(In.size() > 0);
   const BasicBlock *FinalDominator = nullptr;
-  for (const Use *U : In) {
+  for (const BBEdge &E : In) {
     if (!FinalDominator) {
-      FinalDominator = useToSourceBB(*U);
+      FinalDominator = *E.getSource();
       continue;
     }
-    FinalDominator = DT.findNearestCommonDominator(FinalDominator, useToSourceBB(*U));
+    FinalDominator = DT.findNearestCommonDominator(FinalDominator, E.getDest());
   }
   return FinalDominator;
 }
 
-SmallSet<const BasicBlock *, 4>
-filterSet(const SmallSet<const BasicBlock *, 4> &In,
-          std::function<bool(const BasicBlock *)> Predicate) {
-  SmallSet<const BasicBlock *, 4> BBSet;
-  for (auto BB : In) {
-    if (Predicate(BB))
-      BBSet.insert(BB);
+template <typename T, typename F>
+std::set<T> filterSet(const std::set<T> &In, F Predicate) {
+  // std::function<bool(const T &)> &Predicate) {
+  std::set<T> S;
+  for (auto V : In) {
+    if (Predicate(V))
+      S.insert(V);
   }
-  return BBSet;
+  return S;
 }
 
 // Return the successor if the true, false branch are taken.
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const BasicBlock *, const BasicBlock *>
 getTrueFalseSuccessors(const BasicBlock *BB) {
-  errs() << "BB: " << BB->getName() << "\n";
-  // assert(!BB->getSingleSuccessor());
 
   if (const BasicBlock *Succ = BB->getSingleSuccessor())
     return std::make_pair(Succ, Succ);
@@ -273,74 +364,101 @@ const Loop *getOutermostLoopNotInLoop(ConstLoopSet &Inner,
   return CurOutermost;
 }
 
-BBSet GraphRewrite::computeBreakEdges(const Loop *L) const {
-    BBSet BBs;
+BBEdgeSet GraphRewrite::computeBreakEdges(const Loop *L) const {
+  BBEdgeSet Edges;
 
-    SmallVector<BasicBlock *, 4> ExitingBBVec;
-    L->getExitBlocks(ExitingBBVec);
+  SmallVector<BasicBlock *, 4> ExitingBBVec;
+  L->getExitBlocks(ExitingBBVec);
 
-    for(auto BB: ExitingBBVec) BBs.insert(BB);
+  for (auto BB : ExitingBBVec) {
+    Edges.insert(BBEdge::create(BB, L->getHeader()));
+  }
 
-    return BBs;
+  return Edges;
 }
 
-PEGNode *GraphRewrite::makeDecideNode(BBEdge &Source,
-                        BBEdgeSet &In,
-                        ValueFn VF,
-                        ConstLoopSet Outer) const {
 
 
-  if (In.size() == 0)
-    return nullptr; // not sure if this is correct.
+PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
+                                      ConstLoopSet Outer) const {
+
+    errs() << "===\n";
+  errs() << __PRETTY_FUNCTION__ << "\n";
+  errs() << "Source: " << Source << "\n";
+  errs() << "\n\n";
+  errs() << "in:\n";
+  for (const BBEdge &E : In)
+    errs() << E << "\n";
+  errs() << "\n\n";
+
   const BasicBlock *CommonDom = findCommonDominator(DT, In);
+  errs() << "CommonDom: " << CommonDom->getName() << "\n";
 
   const Loop *CommonDomLoop = LI.getLoopFor(CommonDom);
   ConstLoopSet CommonDomLoopSet = makeConstLoopSet(CommonDomLoop);
 
   if (isSubset(CommonDomLoopSet, Outer)) {
-    if (In.size() == 1) {
-      for (const BasicBlock *BB : In)
-        return getPEGNodeFor(BB);
-    }
+      auto getCommonMappedPEGNode = [&] () -> PEGNode * {
+          PEGNode *CommonNode = nullptr;
+          for (const BBEdge &E : In){ 
+              if (!CommonNode) { CommonNode = VF(E); continue; }
+              if (CommonNode != VF(E)) return nullptr;
+          }
+          return CommonNode;
+      };
+      // Perform optimization when all nodes are mapped to the same thing.
+      if (PEGNode *Common = getCommonMappedPEGNode()) {
+          errs() << "Common: " << Common->getName() << "\n";
+          return Common;
+      }
 
     assert(In.size() > 1);
 
     const BasicBlock *TrueBB, *FalseBB;
 
     std::tie(TrueBB, FalseBB) = getTrueFalseSuccessors(CommonDom);
+    errs() << "TrueBB: " << TrueBB->getName() << "\n";
+    errs() << "FalseBB: " << FalseBB->getName() << "\n";
     assert(TrueBB && "TrueBB uninitialized");
     assert(FalseBB && "FalseBB uninitialized");
 
-    SmallSet<const BasicBlock *, 4> TrueNodes =
-        filterSet(In, [&](const BasicBlock *BB) {
-          return isPotentiallyReachable(TrueBB, BB, &DT, &LI);
-        });
-    PEGNode *TrueNode = makeDecideNode(Cur, TrueNodes, Outer);
+    BBEdgeSet TrueEdges = filterSet(In, [&](const BBEdge &E) -> bool {
+      return isPotentiallyReachable(*E.getSource(), TrueBB, &DT, &LI);
+    });
 
-    SmallSet<const BasicBlock *, 4> FalseNodes =
-        filterSet(In, [&](const BasicBlock *BB) {
-          return isPotentiallyReachable(FalseBB, BB, &DT, &LI);
-        });
-    PEGNode *FalseNode = makeDecideNode(Cur, FalseNodes, Outer);
+    errs() << "TrueEdges: " << TrueEdges.size() << "\n";;
+    for(auto E: TrueEdges) {
+        errs() << E << "\n";
+    }
+
+    PEGNode *TrueNode = makeDecideNode(Source, TrueEdges, VF, Outer);
+    errs() << "True: " << *TrueNode << "\n";
+
+    BBEdgeSet FalseEdges = filterSet(In, [&](const BBEdge &E) -> bool {
+      return isPotentiallyReachable(*E.getSource(), FalseBB, &DT, &LI);
+    });
+    PEGNode *FalseNode = makeDecideNode(Source, FalseEdges, VF, Outer);
+    errs() << "False: " << *FalseNode << "\n";
 
     PEGConditionNode *Condition = getConditionNodeFor(CommonDom);
     return new PEGPhiNode(Condition, TrueNode, FalseNode);
   } else {
     const Loop *LNew = getOutermostLoopNotInLoop(CommonDomLoopSet, Outer);
 
-
     Outer.insert(LNew);
-    PEGNode *Val = makeDecideNode(Cur, In, Outer);
+    PEGNode *Val = makeDecideNode(Source, In, VF, Outer);
+    assert(false);
+    /*
     auto BreakBBs = computeBreakEdges(LNew);
-    PEGNode *Break = makeBreakCondition(Cur, LNew, BreakBBs, Outer);
-    return new PEGEvalNode(LNew, Val, new PEGPassNode(LNew, Break));
+    PEGNode *Break = makeBreakCondition(useToSourceBB(Source), LNew, BreakBBs,
+    Outer); return new PEGEvalNode(LNew, Val, new PEGPassNode(LNew, Break));
+    */
   }
 }
 
-PEGNode *GraphRewrite::makeBreakCondition(const BasicBlock *Cur, const Loop *L, 
-        BBEdgeSet BreakBBs,
-        ConstLoopSet Outer) const {
-    return new makeDecideNode(Cur, 
+PEGNode *GraphRewrite::makeBreakCondition(const BasicBlock *Cur, const Loop *L,
+                                          BBEdgeSet BreakBBs,
+                                          ConstLoopSet Outer) const {
 
 };
 static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
@@ -356,47 +474,54 @@ static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
 
 PEGNode *GraphRewrite::computeInputs(const BasicBlock *BB,
                                      bool fromInsideLoop) const {
+    assert(BB != &F->getEntryBlock());
+
   // When we are looking for stuff inside the loop, we are in a "virtual" node
   // that is not a loop header
   if (LI.isLoopHeader(BB) && !fromInsideLoop) {
     Loop *L = LI.getLoopFor(BB);
 
     BBEdgeSet In;
+    if (BB == &F->getEntryBlock()) {
+      In.insert(*RootEdge);
+    }
+
     // We want basic blocks that are _from_ the loop.
     if (fromInsideLoop) {
       for (auto PredBB : predecessors(BB)) {
         if (isLoopLatch(LI, L, PredBB))
-          In.insert(PredBB->get);
+          In.insert(BBEdge::create(PredBB, L->getLoopLatch()));
       }
     } else {
       // We want basic blocks that are _outside_ the loop.
       for (auto PredBB : predecessors(BB)) {
         // The predecessor is not within us
         if (!isLoopLatch(LI, L, PredBB))
-          In.insert(PredBB);
-        // Not sure if the conditions are equivalent
-        // if (!L->isLoopLatch(PredBB)) In.insert(PredBB);
+          In.insert(BBEdge::create(PredBB, L->getLoopLatch()));
       }
-    };
-    PEGNode *Decider =
-        makeDecideNode(BB, In, makeConstLoopSet(LI.getLoopFor(BB)));
+    }
+
+    PEGNode *Decider = makeDecideNode(
+        *RootEdge, In, createValueFnGetEdgeSource(BBMap, *RootEdge),
+        makeConstLoopSet(LI.getLoopFor(BB)));
     {
       errs() << __PRETTY_FUNCTION__ << "\n";
       errs() << "* fromInsideLoop:" << fromInsideLoop << "\n";
       errs() << "* BB:" << BB->getName() << "\n";
       errs() << "* In:\n";
-      for (auto I : In)
-        errs() << "\t-" << I->getName() << "\n";
+      for (const BBEdge &I : In)
+        errs() << "\t-" << I << "\n";
       errs() << "* Decider: " << Decider->getName() << "\n";
     };
     return new PEGThetaNode(Decider, computeInputs(BB, true));
   } else {
-    SmallSet<const BasicBlock *, 4> In;
-    for (auto PredBB : predecessors(BB)) {
-      In.insert(PredBB);
-    }
-    PEGNode *Decider =
-        makeDecideNode(BB, In, makeConstLoopSet(LI.getLoopFor(BB)));
+
+    BBEdgeSet In = getInEdges(BB);
+    PEGNode *Decider = makeDecideNode(
+        *RootEdge, In, createValueFnGetEdgeSource(BBMap, *RootEdge),
+        makeConstLoopSet(LI.getLoopFor(BB)));
+    errs() << "* BB: " << BB->getName() << " | Decider: " << Decider->getName()
+           << "\n";
     return Decider;
   }
 }
@@ -411,6 +536,10 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
   };
 
   for (auto It : BBMap) {
+      // DOUBT: [Handling of entry block]
+      // How should ComputeInputs handle the entry block?
+    if (It.first == &F.getEntryBlock()) continue;
+
     PEGNode *Child = computeInputs(It.first);
     if (Child)
       It.second->setChild(Child);
@@ -436,12 +565,17 @@ static void writePEGToDotFile(PEGFunction &F) {
 }
 
 bool GraphRewrite::run(Function &F) {
+  this->F = &F;
+  RootEdge = BBEdge::makeEntryEdge(&F.getEntryBlock());
+
   PEGFunction *PEGF = createAPEG(F);
 
   if (DotPEG) {
     writePEGToDotFile(*PEGF);
   }
-  outs() << *PEGF << "\n";
+  // outs() << *PEGF << "\n";
+  RootEdge = None;
+  this->F = nullptr;
   return false;
 }
 //===----------------------------------------------------------------------===//
@@ -450,6 +584,7 @@ bool GraphRewrite::run(Function &F) {
 
 PreservedAnalyses llvm::GraphRewritePass::run(Function &F,
                                               FunctionAnalysisManager &AM) {
+
   auto &LI = AM.getResult<LoopAnalysis>(F);
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
