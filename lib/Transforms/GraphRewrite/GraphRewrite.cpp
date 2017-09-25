@@ -87,6 +87,9 @@ void PEGBasicBlock::print(raw_ostream &os) const {
     }
 }
 
+void PEGBasicBlock::printAsOperand(raw_ostream &OS, bool PrintType) const {
+    OS << this->getName(); 
+}
 PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                              const BasicBlock *BB, const Loop *SurroundingLoop,
                              bool isEntry,

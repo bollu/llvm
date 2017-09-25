@@ -118,6 +118,8 @@ public:
 
   bool isEntry() const { return IsEntry; }
   void print(raw_ostream &os) const override;
+  // Printing method used by genericdomtree.
+  void printAsOperand(raw_ostream &OS, bool PrintType = true) const;
 
   static bool classof(const PEGNode *N) {
     return N->getKind() == PEGNode::PEGNK_BB;

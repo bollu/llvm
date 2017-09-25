@@ -40,21 +40,12 @@ extern template class DominatorTreeBase<PEGBasicBlock, true>; // PostDomTree
 
 using PEGDomTreeNode = DomTreeNodeBase<PEGBasicBlock>;
 
-class PEGDominatorTree  {
+class PEGDominatorTree  : public DominatorTreeBase<PEGBasicBlock, false> {
  public:
-  std::unique_ptr<DomTreeBase<PEGBasicBlock>> DT;
+  using Base = DominatorTreeBase<PEGBasicBlock, false>;
 
   PEGDominatorTree() = default;
-  bool runOnFunction(PEGFunction &F) { 
-      DT.reset(new DomTreeBase<PEGBasicBlock>());
-      DT->recalculate(F);
-      return false;
-  }
-
-  inline PEGDomTreeNode *getRootNode() const {
-    return DT->getRootNode();
-  }
-
+  explicit PEGDominatorTree(PEGFunction &F) { recalculate(F); }
 };
 
 
