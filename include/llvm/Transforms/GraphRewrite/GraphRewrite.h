@@ -54,7 +54,7 @@ public:
 
   void setChild(PEGNode *Child) { Children = {Child}; }
 
-virtual void print(raw_ostream &os) const {
+  virtual void print(raw_ostream &os) const {
     report_fatal_error(
         "expect children to implement this. Not marked as pure virtual because"
         " it fucks with ilist of BB");
@@ -82,7 +82,9 @@ using LoopSet = std::set<Loop *>;
 using ConstLoopSet = std::set<const Loop *>;
 
 // Structured very similar to machineBB;
-class PEGBasicBlock : public PEGNode, public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
+class PEGBasicBlock
+    : public PEGNode,
+      public ilist_node_with_parent<PEGBasicBlock, PEGFunction> {
   // Stores if this PEG is still an A-PEG.
   bool IsEntry;
   bool APEG;
@@ -125,9 +127,7 @@ public:
     this->Predecessors.push_back(Pred);
   }
 
-  void addSuccessor(PEGBasicBlock *Succ) {
-    this->Successors.push_back(Succ);
-  }
+  void addSuccessor(PEGBasicBlock *Succ) { this->Successors.push_back(Succ); }
 
   const PEGBasicBlock *getVirtualForwardNode() const {
     return VirtualForwardNode;
@@ -165,8 +165,7 @@ public:
   }
 };
 
-
-template <> struct GraphTraits<PEGBasicBlock *>  {
+template <> struct GraphTraits<PEGBasicBlock *> {
   using NodeRef = PEGBasicBlock *;
   using ChildIteratorType = PEGBasicBlock::iterator;
 
@@ -188,34 +187,27 @@ template <> struct GraphTraits<const PEGBasicBlock *> {
   static unsigned size(NodeRef N) { return N->size_succ(); }
 };
 
-template <> struct GraphTraits<Inverse<PEGBasicBlock*>> {
+template <> struct GraphTraits<Inverse<PEGBasicBlock *>> {
   using NodeRef = PEGBasicBlock *;
   using ChildIteratorType = PEGBasicBlock::iterator;
 
-  static NodeRef getEntryNode(NodeRef G) {
-    return G;
-   }
- 
-   static ChildIteratorType child_begin(NodeRef N) { return N->begin_pred(); }
-   static ChildIteratorType child_end(NodeRef N) { return N->end_pred(); }
-    static unsigned size(NodeRef N) { return N->size_pred(); }
+  static NodeRef getEntryNode(NodeRef G) { return G; }
 
- };
+  static ChildIteratorType child_begin(NodeRef N) { return N->begin_pred(); }
+  static ChildIteratorType child_end(NodeRef N) { return N->end_pred(); }
+  static unsigned size(NodeRef N) { return N->size_pred(); }
+};
 
-  
-template <> struct GraphTraits<Inverse<const PEGBasicBlock*>> {
+template <> struct GraphTraits<Inverse<const PEGBasicBlock *>> {
   using NodeRef = const PEGBasicBlock *;
-   using ChildIteratorType = PEGBasicBlock::const_iterator;
- 
-   static NodeRef getEntryNode(NodeRef G) {
-     return G;
-   }
- 
-   static ChildIteratorType child_begin(NodeRef N) { return N->begin_pred(); }
-   static ChildIteratorType child_end(NodeRef N) { return N->end_pred(); }
-    static unsigned size(NodeRef N) { return N->size_pred(); }
+  using ChildIteratorType = PEGBasicBlock::const_iterator;
 
- };
+  static NodeRef getEntryNode(NodeRef G) { return G; }
+
+  static ChildIteratorType child_begin(NodeRef N) { return N->begin_pred(); }
+  static ChildIteratorType child_end(NodeRef N) { return N->end_pred(); }
+  static unsigned size(NodeRef N) { return N->size_pred(); }
+};
 
 class PEGConditionNode : public PEGNode {
 private:
@@ -331,17 +323,18 @@ public:
 
 class PEGFunction {
 public:
-    using NodesListType = ilist<PEGNode>;
-    using BasicBlockListType = ilist<PEGBasicBlock>;
+  using NodesListType = ilist<PEGNode>;
+  using BasicBlockListType = ilist<PEGBasicBlock>;
+
 private:
   const Function &Fn;
- // List of machine basic blocks in function
+  // List of machine basic blocks in function
   NodesListType Nodes;
   BasicBlockListType BasicBlocks;
 
 public:
-  PEGFunction(const Function &Fn) : Fn(Fn) {};
-  
+  PEGFunction(const Function &Fn) : Fn(Fn){};
+
   using ChildIteratorType = BasicBlockListType::iterator;
   using iterator = BasicBlockListType::iterator;
   using const_iterator = BasicBlockListType::const_iterator;
@@ -363,7 +356,6 @@ public:
 
   const PEGBasicBlock &back() const { return BasicBlocks.back(); }
   PEGBasicBlock &back() { return BasicBlocks.back(); }
-
 
   using node_iterator = NodesListType::iterator;
   using const_node_iterator = NodesListType::const_iterator;
@@ -395,6 +387,7 @@ public:
 
 // Provide graph traits for tranversing call graphs using standard graph
 // traversals.
+/*
 template <> struct GraphTraits<const PEGNode *> {
   using NodeRef = const PEGNode *;
   using ChildIteratorType = PEGNode::const_iterator;
@@ -419,14 +412,15 @@ template <> struct GraphTraits<PEGNode *> {
   static unsigned size(NodeRef N) { return N->size(); }
 };
 
-
+*/
 
 /*
 
 template <>
 struct GraphTraits<const PEGFunction *> : public GraphTraits<const PEGNode *> {
   using NodeRef = const PEGNode *;
-  static NodeRef getEntryNode(const PEGFunction *F) { return &F->front_nodes(); }
+  static NodeRef getEntryNode(const PEGFunction *F) { return &F->front_nodes();
+}
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
   using nodes_iterator = pointer_iterator<PEGFunction::const_node_iterator>;
@@ -461,14 +455,13 @@ template <> struct GraphTraits<PEGFunction *> : public GraphTraits<PEGNode *> {
 */
 
 template <>
-struct GraphTraits<const PEGFunction *> {
-  using NodeRef = const PEGBasicBlock&;
+struct GraphTraits<const PEGFunction *>
+    : public GraphTraits<const PEGBasicBlock *> {
 
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
   using nodes_iterator = pointer_iterator<PEGFunction::const_iterator>;
 
-  static NodeRef getEntryNode(const PEGFunction *F) { return F->front(); }
-
+  static NodeRef getEntryNode(const PEGFunction *F) { return &F->front(); }
 
   static nodes_iterator nodes_begin(const PEGFunction *F) {
     return nodes_iterator(F->begin());
@@ -481,12 +474,12 @@ struct GraphTraits<const PEGFunction *> {
   static size_t size(const PEGFunction *F) { return F->size(); }
 };
 
-template <> struct GraphTraits<PEGFunction *> {
+template <>
+struct GraphTraits<PEGFunction *> : public GraphTraits<PEGBasicBlock *> {
   // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
-  using NodeRef = PEGBasicBlock&;
-  using nodes_iterator = PEGFunction::iterator;
+  using nodes_iterator = pointer_iterator<PEGFunction::iterator>;
 
-  static NodeRef getEntryNode(PEGFunction *F) { return F->front(); }
+  static NodeRef getEntryNode(PEGFunction *F) { return &F->front(); }
 
   static nodes_iterator nodes_begin(PEGFunction *F) {
     return nodes_iterator(F->begin());
@@ -498,7 +491,6 @@ template <> struct GraphTraits<PEGFunction *> {
 
   static size_t size(PEGFunction *F) { return F->size(); }
 };
-
 
 class GraphRewritePass : public PassInfoMixin<GraphRewritePass> {
 

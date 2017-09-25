@@ -40,24 +40,19 @@ extern template class DominatorTreeBase<PEGBasicBlock, true>; // PostDomTree
 
 using PEGDomTreeNode = DomTreeNodeBase<PEGBasicBlock>;
 
-class PEGDominatorTree : public DominatorTreeBase<PEGBasicBlock, false> {
+class PEGDominatorTree  {
  public:
-  using Base = DominatorTreeBase<PEGBasicBlock, false>;
+  std::unique_ptr<DomTreeBase<PEGBasicBlock>> DT;
 
   PEGDominatorTree() = default;
-  explicit PEGDominatorTree(PEGFunction &F) { recalculate(F); }
+  bool runOnFunction(PEGFunction &F) { 
+      DT.reset(new DomTreeBase<PEGBasicBlock>());
+      DT->recalculate(F);
+      return false;
+  }
 
-  /// Handle invalidation explicitly.
-  // bool invalidate(Function &F, const PreservedAnalyses &PA,
-  //                 FunctionAnalysisManager::Invalidator &);
-// 
-  /// \brief Returns *false* if the other dominator tree matches this dominator
-  /// tree.
-  inline bool compare(const PEGDominatorTree &Other) const {
-    const PEGDomTreeNode *R = getRootNode();
-    const PEGDomTreeNode *OtherR = Other.getRootNode();
-    return !R || !OtherR || R->getBlock() != OtherR->getBlock() ||
-           Base::compare(Other);
+  inline PEGDomTreeNode *getRootNode() const {
+    return DT->getRootNode();
   }
 
 };
@@ -67,7 +62,7 @@ template <class Node, class ChildIterator>
 struct PEGDOMTreeGraphTraitsBase {
   using NodeRef = Node *;
   using ChildIteratorType = ChildIterator;
-  using nodes_iterator = df_iterator<Node *, df_iterator_default_set<Node*>>;
+  // using nodes_iterator = df_iterator<Node *, df_iterator_default_set<Node*>>;
 
   static NodeRef getEntryNode(NodeRef N) { return N; }
   static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
@@ -92,13 +87,13 @@ template <> struct GraphTraits<PEGDominatorTree*>
   : public GraphTraits<PEGDomTreeNode*> {
   static NodeRef getEntryNode(PEGDominatorTree *DT) { return DT->getRootNode(); }
 
-  static nodes_iterator nodes_begin(PEGDominatorTree *N) {
-    return df_begin(getEntryNode(N));
-  }
+  // static nodes_iterator nodes_begin(PEGDominatorTree *N) {
+  //   return df_begin(getEntryNode(N));
+  // }
 
-  static nodes_iterator nodes_end(PEGDominatorTree *N) {
-    return df_end(getEntryNode(N));
-  }
+  // static nodes_iterator nodes_end(PEGDominatorTree *N) {
+  //   return df_end(getEntryNode(N));
+  // }
 };
 
 } // end namespace llvm

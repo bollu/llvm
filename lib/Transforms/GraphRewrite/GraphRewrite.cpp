@@ -554,7 +554,7 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
     const bool IsEntry = &BB == &F.getEntryBlock();
     const Loop *L = LI.getLoopFor(&BB);
 
-    PEGBasicBlock *VirtualForwardNode;
+    PEGBasicBlock *VirtualForwardNode = nullptr;
     if (LI.isLoopHeader(&BB)) {
       VirtualForwardNode = new PEGBasicBlock(
           LI, PEGF, &BB,
