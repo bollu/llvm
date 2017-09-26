@@ -34,9 +34,9 @@ inline void DominatorTreeBase<PEGBasicBlock, false>::addRoot(
   this->Roots.push_back(MBB);
 }
 
-extern template class DomTreeNodeBase<PEGBasicBlock>;
-extern template class DominatorTreeBase<PEGBasicBlock, false>; // DomTree
-extern template class DominatorTreeBase<PEGBasicBlock, true>; // PostDomTree
+template class DomTreeNodeBase<PEGBasicBlock>;
+template class DominatorTreeBase<PEGBasicBlock, false>; // DomTree
+template class DominatorTreeBase<PEGBasicBlock, true>; // PostDomTree
 
 using PEGDomTreeNode = DomTreeNodeBase<PEGBasicBlock>;
 
