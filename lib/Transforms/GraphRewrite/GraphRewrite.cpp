@@ -323,9 +323,9 @@ std::set<T> filterSet(const std::set<T> &In, F Predicate) {
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const PEGBasicBlock *, const PEGBasicBlock *>
 getTrueFalseSuccessors(const PEGBasicBlock *BB) {
-    errs() << __PRETTY_FUNCTION__ << "\n\tBB: " << *BB << "\n";
-    for (auto Succ : make_range(BB->begin_succ(), BB->end_succ()))
-            errs () << *Succ << "\n";
+  errs() << __PRETTY_FUNCTION__ << "\n\tBB: " << *BB << "\n";
+  for (auto Succ : BB->successors())
+    errs() << *Succ << "\n";
 
   assert(!BB->getUniqueSuccessor());
   // if (const BasicBlock *Succ = BB->getSingleSuccessor())
@@ -428,7 +428,7 @@ PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
 
   if (isSubset(CommonDomLoopSet, Outer)) {
     errs() << "isSubset(CommonDomLoopSet, Outer)) == T\n";
-    auto getCommonMappedPEGNode = [&]() -> PEGNode* {
+    auto getCommonMappedPEGNode = [&]() -> PEGNode * {
       const PEGNode *CommonNode = nullptr;
       for (const BBEdge &E : In) {
         errs() << "VF(" << E << ") = " << VF(E)->getName() << "\n";
@@ -573,13 +573,6 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
       RootEdge = BBEdge::makeEntryEdge(PEGBB);
   };
 
-  auto makeEdge = [&](PEGBasicBlock *From, PEGBasicBlock *To) {
-      errs() << __PRETTY_FUNCTION__ << " Creating edge: " << From->getName() << "--->" << To->getName() << "\n";
-    To->addPredecessor(From);
-    From->addSuccessor(To);
-    // PEGDT.insertEdge(From, To);
-  };
-
   for (auto It : BBMap) {
     // DOUBT: [Handling of entry block]
     // How should ComputeInputs handle the entry block?
@@ -596,15 +589,15 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
           // after construction. #haskell.
           PEGBasicBlock *VirtualForwardPEGBB =
               VirtualForwardMap.find(PEGBB)->second;
-          makeEdge(PredPEGBB, VirtualForwardPEGBB);
+          PEGBasicBlock::addEdge(PredPEGBB, VirtualForwardPEGBB);
         } else {
           // non loop latches are attached to the real node.
-          makeEdge(PredPEGBB, PEGBB);
+          PEGBasicBlock::addEdge(PredPEGBB, PEGBB);
         }
       }
       // not a loop header.
       else {
-        makeEdge(PredPEGBB, PEGBB);
+          PEGBasicBlock::addEdge(PredPEGBB, PEGBB);
       }
     }
 
@@ -612,11 +605,11 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
     PEGDT.recalculate(*PEGF);
 
     if (!PEGBB->isEntry()) {
-        PEGNode *Child = computeInputs(It.second);
-        if (Child)
-            It.second->setChild(Child);
-        else
-            errs() << *It.second << "can't have a child.\n";
+      PEGNode *Child = computeInputs(It.second);
+      if (Child)
+        It.second->setChild(Child);
+      else
+        errs() << *It.second << "can't have a child.\n";
     }
   }
 

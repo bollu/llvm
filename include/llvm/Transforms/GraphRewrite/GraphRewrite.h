@@ -97,6 +97,12 @@ class PEGBasicBlock
   std::vector<PEGBasicBlock *> Successors;
   const PEGBasicBlock *VirtualForwardNode;
 
+  void addPredecessor(PEGBasicBlock *Pred) {
+    this->Predecessors.push_back(Pred);
+  }
+
+  void addSuccessor(PEGBasicBlock *Succ) { this->Successors.push_back(Succ); }
+
 public:
   explicit PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                          const BasicBlock *BB, const Loop *SurroundingLoop,
@@ -125,11 +131,6 @@ public:
     return N->getKind() == PEGNode::PEGNK_BB;
   }
 
-  void addPredecessor(PEGBasicBlock *Pred) {
-    this->Predecessors.push_back(Pred);
-  }
-
-  void addSuccessor(PEGBasicBlock *Succ) { this->Successors.push_back(Succ); }
 
   const PEGBasicBlock *getVirtualForwardNode() const {
     return VirtualForwardNode;
@@ -143,14 +144,18 @@ public:
 
   using iterator = std::vector<PEGBasicBlock *>::iterator;
   using const_iterator = std::vector<const PEGBasicBlock *>::const_iterator;
-  using predecessor_range = iterator_range<iterator>;
-  using const_predecessor_range = iterator_range<const_iterator>;
 
   iterator begin_succ() { return this->Successors.begin(); }
   iterator end_succ() { return this->Successors.end(); }
   const_iterator begin_succ() const { return this->Successors.begin(); }
   const_iterator end_succ() const { return this->Successors.end(); }
   size_t size_succ() const { return Successors.size(); }
+  iterator_range<iterator> successors() {
+    return make_range(begin_succ(), end_succ());
+  }
+  iterator_range<const_iterator> successors() const {
+    return make_range(begin_succ(), end_succ());
+  }
 
   iterator begin_pred() { return this->Predecessors.begin(); }
   iterator end_pred() { return this->Predecessors.end(); }
@@ -158,12 +163,17 @@ public:
   const_iterator end_pred() const { return this->Predecessors.end(); }
   size_t size_pred() const { return Predecessors.size(); }
 
-  predecessor_range predecessors() {
+  iterator_range<iterator> predecessors() {
     return iterator_range<iterator>(begin_pred(), end_pred());
   }
 
-  const_predecessor_range predecessors() const {
+  iterator_range<const_iterator> predecessors() const {
     return iterator_range<const_iterator>(begin_pred(), end_pred());
+  }
+
+  static void addEdge(PEGBasicBlock *From, PEGBasicBlock *To) {
+    To->addPredecessor(From);
+    From->addSuccessor(To);
   }
 };
 
