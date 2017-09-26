@@ -404,7 +404,6 @@ public:
 
 // Provide graph traits for tranversing call graphs using standard graph
 // traversals.
-/*
 template <> struct GraphTraits<const PEGNode *> {
   using NodeRef = const PEGNode *;
   using ChildIteratorType = PEGNode::const_iterator;
@@ -412,7 +411,6 @@ template <> struct GraphTraits<const PEGNode *> {
   static NodeRef getEntryNode(NodeRef N) { return N; }
 
   static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
-
   static ChildIteratorType child_end(NodeRef N) { return N->end(); }
   static unsigned size(NodeRef N) { return N->size(); }
 };
@@ -424,12 +422,9 @@ template <> struct GraphTraits<PEGNode *> {
   static NodeRef getEntryNode(NodeRef N) { return N; }
 
   static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
-
   static ChildIteratorType child_end(NodeRef N) { return N->end(); }
   static unsigned size(NodeRef N) { return N->size(); }
 };
-
-*/
 
 /*
 

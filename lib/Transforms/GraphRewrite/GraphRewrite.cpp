@@ -36,6 +36,64 @@ static cl::opt<bool>
     DotPEG("dot-peg", cl::init(false), cl::Hidden, cl::ZeroOrMore,
            cl::desc("write PEG from -graphrewrite to a dot file"));
 
+// a DOTPEGFunction exposes a node iterator as iterator, so that we can generate
+// graphs for it
+class DotPEGFunction {
+    PEGFunction *F;
+public:
+    using iterator = PEGFunction::node_iterator;
+    using const_iterator = PEGFunction::const_node_iterator;
+    DotPEGFunction(PEGFunction *F) : F(F) {};
+
+  iterator begin() { return F->begin_nodes(); }
+  const_iterator begin() const { return F->begin_nodes(); }
+
+  iterator end() { return F->end_nodes(); }
+  const_iterator end() const { return F->end_nodes(); }
+
+  size_t size() const { return F->size_nodes(); }
+  bool empty() const { return F->empty_nodes(); }
+
+  const PEGNode &front() const { return F->front_nodes(); }
+  PEGNode &front() { return F->front_nodes(); }
+
+  const PEGNode &back() const { return F->back_nodes(); }
+  PEGNode &back() { return F->back_nodes(); }
+};
+
+template <>
+struct GraphTraits<const DotPEGFunction *> : public GraphTraits<const PEGNode *> {
+  using nodes_iterator = pointer_iterator<PEGFunction::const_node_iterator>;
+  static NodeRef getEntryNode(const DotPEGFunction *F) { return &F->front(); }
+
+
+  static nodes_iterator nodes_begin(const DotPEGFunction*F) {
+    return nodes_iterator(F->begin());
+  }
+
+  static nodes_iterator nodes_end(const DotPEGFunction *F) {
+    return nodes_iterator(F->end());
+  }
+
+  static size_t size(const DotPEGFunction *F) { return F->size(); }
+};
+
+template <> struct GraphTraits<DotPEGFunction> : public GraphTraits<PEGNode *> {
+  // nodes_iterator/begin/end - Allow iteration over all nodes in the graph
+  using nodes_iterator = pointer_iterator<PEGFunction::node_iterator>;
+
+  static NodeRef getEntryNode(DotPEGFunction *F) { return &F->front(); }
+
+  static nodes_iterator nodes_begin(DotPEGFunction *F) {
+    return nodes_iterator(F->begin());
+  }
+
+  static nodes_iterator nodes_end(DotPEGFunction *F) {
+    return nodes_iterator(F->end());
+  }
+  static size_t size(DotPEGFunction *F) { return F->size(); }
+};
+
 LoopSet makeLoopSet(Loop *L) {
   LoopSet LS;
   if (!L)
@@ -649,6 +707,7 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
 };
 
 static void writePEGToDotFile(PEGFunction &F) {
+  const DotPEGFunction DotF(&F);
   std::string Filename = ("peg." + F.getName() + ".dot").str();
   errs() << "Writing '" << Filename << "'...";
 
@@ -656,7 +715,7 @@ static void writePEGToDotFile(PEGFunction &F) {
   raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
 
   if (!EC)
-    WriteGraph(File, (const PEGFunction *)&F);
+    WriteGraph(File, &DotF);
   else
     errs() << "  error opening file for writing!";
   errs() << "\n";
