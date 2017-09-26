@@ -96,6 +96,7 @@ class PEGBasicBlock
   std::vector<PEGBasicBlock *> Predecessors;
   std::vector<PEGBasicBlock *> Successors;
   const PEGBasicBlock *VirtualForwardNode;
+  bool IsVirtualForwardNode;
 
   void addPredecessor(PEGBasicBlock *Pred) {
     this->Predecessors.push_back(Pred);
@@ -106,7 +107,8 @@ class PEGBasicBlock
 public:
   explicit PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                          const BasicBlock *BB, const Loop *SurroundingLoop,
-                         bool isEntry, const PEGBasicBlock *VirtualForwardNode);
+                         bool isEntry, const PEGBasicBlock *VirtualForwardNode,
+                         bool IsVirtualForwardNode);
   PEGBasicBlock(const PEGBasicBlock &other) = delete;
 
   const TerminatorInst *getTerminator() const { return BB->getTerminator(); };
@@ -133,7 +135,10 @@ public:
 
 
   const PEGBasicBlock *getVirtualForwardNode() const {
-    return VirtualForwardNode;
+      if(!VirtualForwardNode) {
+          errs() << "BB with failing virtualForwardNode: " << getName() << "\n";;
+      }
+      return VirtualForwardNode;
   }
 
   const Loop *getSurroundingLoop() const { return SurroundingLoop; }

@@ -78,9 +78,9 @@ void PEGThetaNode::print(raw_ostream &os) const { os << getName(); }
 // PEGBasicBlock
 //===----------------------------------------------------------------------===//
 
-bool PEGBasicBlock::isLoopHeader() const { return LI.isLoopHeader(BB); }
+bool PEGBasicBlock::isLoopHeader() const { return !IsVirtualForwardNode && LI.isLoopHeader(BB); }
 void PEGBasicBlock::print(raw_ostream &os) const {
-  os << "pegbb-" << std::string(BB->getName()) << "\n";
+  os << "pegbb-" << this->getName() << "\n";
   if (Children.size())
     for (const PEGNode *Child : Children) {
       errs() << "\t-" << *Child << "\n";
@@ -90,13 +90,36 @@ void PEGBasicBlock::print(raw_ostream &os) const {
 void PEGBasicBlock::printAsOperand(raw_ostream &OS, bool PrintType) const {
   OS << this->getName();
 }
+
+static std::string
+makePEGBasicBlockName(const BasicBlock *BB,
+                      const PEGBasicBlock *VirtualForwardNode,
+                      const bool IsVirtualForwardNode) {
+  std::string name = BB->getName();
+  if (IsVirtualForwardNode)
+    name += "-virtual";
+  if (VirtualForwardNode)
+      name += "-concrete";
+  return name;
+}
 PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                              const BasicBlock *BB, const Loop *SurroundingLoop,
                              bool isEntry,
-                             const PEGBasicBlock *VirtualForwardNode)
-    : PEGNode(PEGNodeKind::PEGNK_BB, Parent, BB->getName()), LI(LI),
-      IsEntry(isEntry), APEG(true), Parent(Parent), BB(BB),
-      SurroundingLoop(SurroundingLoop), VirtualForwardNode(VirtualForwardNode) {
+                             const PEGBasicBlock *VirtualForwardNode,
+                             bool IsVirtualForwardNode)
+    : PEGNode(PEGNodeKind::PEGNK_BB, Parent,
+              makePEGBasicBlockName(BB, VirtualForwardNode, IsVirtualForwardNode)),
+      LI(LI), IsEntry(isEntry), APEG(true), Parent(Parent), BB(BB),
+      SurroundingLoop(SurroundingLoop), VirtualForwardNode(VirtualForwardNode),
+      IsVirtualForwardNode(IsVirtualForwardNode) {
+
+ // IsVirtualForwardNode => !VirtualForwardNode
+  assert(!IsVirtualForwardNode || !VirtualForwardNode);
+  if (VirtualForwardNode) {
+    assert(VirtualForwardNode->IsVirtualForwardNode &&
+           "node that is supposed to be virtual forward node is not marked as "
+           "such.");
+  };
   Parent->getBasicBlocksList().push_back(this);
 };
 
@@ -507,15 +530,18 @@ static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
   Loop *LCheck = LI.getLoopFor(Check);
   if (!LCheck)
     return false;
+
   if (LCheck != L)
     return false;
+
   return L->isLoopLatch(Check);
 };
 
 PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
+  assert(BB);
+  assert(!BB->isEntry());
   errs() << "====\n";
   errs() << __PRETTY_FUNCTION__ << "\nBB: " << BB->getName() << "\n";
-  assert(!BB->isEntry());
 
   // When we are looking for stuff inside the loop, we are in a "virtual" node
   // that is not a loop header
@@ -534,6 +560,7 @@ PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
     PEGNode *Decider = makeDecideNode(
         *RootEdge, In, createValueFnGetEdgeSource(*RootEdge), BB->getLoopSet());
     errs() << "* Decider: " << Decider->getName() << "\n";
+    errs() << "* VirtualForwardNode:" << BB->getVirtualForwardNode() << "\n";
     return new PEGThetaNode(Decider,
                             computeInputs(BB->getVirtualForwardNode()));
   } else {
@@ -556,15 +583,20 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
 
     PEGBasicBlock *VirtualForwardNode = nullptr;
     if (LI.isLoopHeader(&BB)) {
-      VirtualForwardNode = new PEGBasicBlock(
-          LI, PEGF, &BB,
-          /* SurroundingLoop = */ nullptr, /*IsEntry = */ false,
-          /* VirtualForwardNode = */ nullptr);
+      VirtualForwardNode = new PEGBasicBlock(LI, PEGF, &BB,
+                                             /* SurroundingLoop = */ nullptr,
+                                             /*IsEntry = */ false,
+                                             /* VirtualForwardNode = */ nullptr,
+                                             /*IsVirtualForwardNode = */ true);
     };
 
-    DEBUG(dbgs() << "running on: " << BB.getName() << "\n");
-    PEGBasicBlock *PEGBB =
-        new PEGBasicBlock(LI, PEGF, &BB, L, IsEntry, VirtualForwardNode);
+    const bool IsVirtualForwardNode = false;
+    PEGBasicBlock *PEGBB = new PEGBasicBlock(
+        LI, PEGF, &BB, L, IsEntry, VirtualForwardNode, IsVirtualForwardNode);
+    if (VirtualForwardNode)
+      errs() << "Creating virtual forward node for: " << PEGBB << "| "
+             << PEGBB->getName() << "| Node: " << VirtualForwardNode << " | "
+             << VirtualForwardNode->getName();
     VirtualForwardMap[PEGBB] = VirtualForwardNode;
     BBMap[&BB] = PEGBB;
     CondMap[PEGBB] = new PEGConditionNode(PEGBB);
@@ -583,7 +615,7 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
       // We need to create edges carefully if this is a loop header.
       if (LI.isLoopHeader(BB)) {
         // Loop latches are forwarded to the virtual node.
-        if (PEGBB->getSurroundingLoop()->isLoopLatch(PredBB)) {
+        if (isLoopLatch(LI, PEGBB->getSurroundingLoop(), PredBB)) {
           // We don't expose a mutable getVirtualForwardNode on purpose.
           // we want our data structures to be immutable as much as possible
           // after construction. #haskell.
@@ -597,7 +629,7 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
       }
       // not a loop header.
       else {
-          PEGBasicBlock::addEdge(PredPEGBB, PEGBB);
+        PEGBasicBlock::addEdge(PredPEGBB, PEGBB);
       }
     }
 
@@ -605,7 +637,7 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
     PEGDT.recalculate(*PEGF);
 
     if (!PEGBB->isEntry()) {
-      PEGNode *Child = computeInputs(It.second);
+      PEGNode *Child = computeInputs(PEGBB);
       if (Child)
         It.second->setChild(Child);
       else
