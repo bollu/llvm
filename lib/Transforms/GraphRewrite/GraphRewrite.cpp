@@ -22,11 +22,11 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/GenericDomTreeConstruction.h"
 #include "llvm/Support/GraphWriter.h"
+#include "llvm/Transforms/GraphRewrite/PEGDominators.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Utils/Local.h"
-#include "llvm/Support/GenericDomTreeConstruction.h"
-#include "llvm/Transforms/GraphRewrite/PEGDominators.h"
 #include <climits>
 
 #define DEBUG_TYPE "graphrewrite"
@@ -88,7 +88,7 @@ void PEGBasicBlock::print(raw_ostream &os) const {
 }
 
 void PEGBasicBlock::printAsOperand(raw_ostream &OS, bool PrintType) const {
-    OS << this->getName(); 
+  OS << this->getName();
 }
 PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                              const BasicBlock *BB, const Loop *SurroundingLoop,
@@ -96,10 +96,9 @@ PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                              const PEGBasicBlock *VirtualForwardNode)
     : PEGNode(PEGNodeKind::PEGNK_BB, Parent, BB->getName()), LI(LI),
       IsEntry(isEntry), APEG(true), Parent(Parent), BB(BB),
-      SurroundingLoop(SurroundingLoop),
-      VirtualForwardNode(VirtualForwardNode){
-        Parent->getBasicBlocksList().push_back(this);
-      };
+      SurroundingLoop(SurroundingLoop), VirtualForwardNode(VirtualForwardNode) {
+  Parent->getBasicBlocksList().push_back(this);
+};
 
 ConstLoopSet PEGBasicBlock::getLoopSet() const {
   return makeConstLoopSet(getSurroundingLoop());
@@ -110,12 +109,12 @@ ConstLoopSet PEGBasicBlock::getLoopSet() const {
 //===----------------------------------------------------------------------===//
 
 void PEGFunction::print(raw_ostream &os) const {
-    /*
-  for (const PEGNode &N : Nodes) {
-    errs() << N << "\n\n";
-  }
-  */
-    errs() << "fn";
+  /*
+for (const PEGNode &N : Nodes) {
+  errs() << N << "\n\n";
+}
+*/
+  errs() << "fn";
 }
 raw_ostream &llvm::operator<<(raw_ostream &os, const PEGFunction &F) {
   F.print(os);
@@ -129,6 +128,7 @@ PEGNode::PEGNode(PEGNodeKind Kind, PEGFunction *Parent, const StringRef Name)
     : Parent(Parent), Kind(Kind), Name(Name) {
   Parent->getNodesList().push_back(this);
 }
+
 raw_ostream &llvm::operator<<(raw_ostream &os, const PEGNode &N) {
   N.print(os);
   return os;
@@ -136,12 +136,10 @@ raw_ostream &llvm::operator<<(raw_ostream &os, const PEGNode &N) {
 template <>
 struct DOTGraphTraits<const PEGFunction *> : public DefaultDOTGraphTraits {
 
-  // HACK: DOTGraphTraits (bool isSimple=false) :
-  // DefaultDOTGraphTraits(isSimple) {}
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
 
   static std::string getGraphName(const PEGFunction *F) {
-    return "CFG for '" + F->getName().str() + "' function";
+    return "PEG for '" + F->getName().str() + "' function";
   }
 
   static std::string getNodeLabel(const PEGNode *Node, const PEGFunction *) {
@@ -219,9 +217,6 @@ raw_ostream &operator<<(raw_ostream &os, const BBEdge &E) {
 using BBEdgeSet = std::set<BBEdge>;
 
 using ValueFn = std::function<const PEGNode *(const BBEdge &)>;
-
-
-// using PEGDominatorTree = DominatorTreeBase<PEGBasicBlock, /*isPostDom=*/false>;
 
 // -----
 // Pass code
@@ -307,11 +302,8 @@ const PEGBasicBlock *findCommonDominator(const PEGDominatorTree &PEGDT,
       FinalDominator = *E.getSource();
       continue;
     }
-    // HACK: For some reason, it's not able to specialize PEGDominatorTree to
-    // PEGBasicBlock. So, create it for PEGNode and cast<> to PEGBasicBlock.
-    // That above sentence accurately encapsulates why i love-hate C++.
-    FinalDominator = cast<PEGBasicBlock>(
-        PEGDT.findNearestCommonDominator(FinalDominator, *E.getSource()));
+    FinalDominator =
+        PEGDT.findNearestCommonDominator(FinalDominator, *E.getSource());
   }
   return FinalDominator;
 }
@@ -331,6 +323,9 @@ std::set<T> filterSet(const std::set<T> &In, F Predicate) {
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const PEGBasicBlock *, const PEGBasicBlock *>
 getTrueFalseSuccessors(const PEGBasicBlock *BB) {
+    errs() << __PRETTY_FUNCTION__ << "\n\tBB: " << *BB << "\n";
+    for (auto Succ : make_range(BB->begin_succ(), BB->end_succ()))
+            errs () << *Succ << "\n";
 
   assert(!BB->getUniqueSuccessor());
   // if (const BasicBlock *Succ = BB->getSingleSuccessor())
@@ -432,9 +427,11 @@ PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
   printConstLoopSet(CommonDomLoopSet);
 
   if (isSubset(CommonDomLoopSet, Outer)) {
-    auto getCommonMappedPEGNode = [&]() -> PEGNode * {
+    errs() << "isSubset(CommonDomLoopSet, Outer)) == T\n";
+    auto getCommonMappedPEGNode = [&]() -> PEGNode* {
       const PEGNode *CommonNode = nullptr;
       for (const BBEdge &E : In) {
+        errs() << "VF(" << E << ") = " << VF(E)->getName() << "\n";
         if (!CommonNode) {
           CommonNode = VF(E);
           continue;
@@ -517,7 +514,7 @@ static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
 
 PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
   errs() << "====\n";
-  errs() << __PRETTY_FUNCTION__ << "\nBB: " << BB->getName();
+  errs() << __PRETTY_FUNCTION__ << "\nBB: " << BB->getName() << "\n";
   assert(!BB->isEntry());
 
   // When we are looking for stuff inside the loop, we are in a "virtual" node
@@ -577,9 +574,10 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
   };
 
   auto makeEdge = [&](PEGBasicBlock *From, PEGBasicBlock *To) {
+      errs() << __PRETTY_FUNCTION__ << " Creating edge: " << From->getName() << "--->" << To->getName() << "\n";
     To->addPredecessor(From);
     From->addSuccessor(To);
-    PEGDT.insertEdge(From, To);
+    // PEGDT.insertEdge(From, To);
   };
 
   for (auto It : BBMap) {
@@ -606,15 +604,20 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
       }
       // not a loop header.
       else {
-        PEGBB->addPredecessor(PredPEGBB);
+        makeEdge(PredPEGBB, PEGBB);
       }
     }
 
-    PEGNode *Child = computeInputs(It.second);
-    if (Child)
-      It.second->setChild(Child);
-    else
-      errs() << *It.second << "can't have a child.\n";
+    // Once we have added the edge, recalcuate the domtree.
+    PEGDT.recalculate(*PEGF);
+
+    if (!PEGBB->isEntry()) {
+        PEGNode *Child = computeInputs(It.second);
+        if (Child)
+            It.second->setChild(Child);
+        else
+            errs() << *It.second << "can't have a child.\n";
+    }
   }
 
   return PEGF;

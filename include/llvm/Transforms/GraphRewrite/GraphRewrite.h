@@ -112,7 +112,7 @@ public:
   }
   std::pair<const PEGBasicBlock *, const PEGBasicBlock *>
   getTrueFalseSuccessors() const {
-    assert(Successors.size() == 1);
+    assert(Successors.size() == 2);
     return std::make_pair(Successors[0], Successors[1]);
   }
 
