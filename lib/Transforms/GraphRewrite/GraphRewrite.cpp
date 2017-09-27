@@ -39,11 +39,14 @@ static cl::opt<bool>
 // a DOTPEGFunction exposes a node iterator as iterator, so that we can generate
 // graphs for it
 class DotPEGFunction {
-    PEGFunction *F;
+  PEGFunction *F;
+
 public:
-    using iterator = PEGFunction::node_iterator;
-    using const_iterator = PEGFunction::const_node_iterator;
-    DotPEGFunction(PEGFunction *F) : F(F) {};
+  using iterator = PEGFunction::node_iterator;
+  using const_iterator = PEGFunction::const_node_iterator;
+  DotPEGFunction(PEGFunction *F) : F(F){};
+
+  std::string getName() const { return F->getName(); }
 
   iterator begin() { return F->begin_nodes(); }
   const_iterator begin() const { return F->begin_nodes(); }
@@ -62,12 +65,12 @@ public:
 };
 
 template <>
-struct GraphTraits<const DotPEGFunction *> : public GraphTraits<const PEGNode *> {
+struct GraphTraits<const DotPEGFunction *>
+    : public GraphTraits<const PEGNode *> {
   using nodes_iterator = pointer_iterator<PEGFunction::const_node_iterator>;
   static NodeRef getEntryNode(const DotPEGFunction *F) { return &F->front(); }
 
-
-  static nodes_iterator nodes_begin(const DotPEGFunction*F) {
+  static nodes_iterator nodes_begin(const DotPEGFunction *F) {
     return nodes_iterator(F->begin());
   }
 
@@ -93,6 +96,51 @@ template <> struct GraphTraits<DotPEGFunction> : public GraphTraits<PEGNode *> {
   }
   static size_t size(DotPEGFunction *F) { return F->size(); }
 };
+
+template <>
+struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
+
+  DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
+
+  static std::string getGraphName(const DotPEGFunction *F) {
+    return "PEG for '" + F->getName() + "' function";
+  }
+
+  static std::string getNodeAttributes(const PEGNode *Node,
+                                       const DotPEGFunction *) {
+    std::string opts = "fontname=menlo";
+    opts += ",color=\"#707070\"";
+    if (isa<PEGConditionNode>(Node))
+      opts += ",shape=ellipse";
+    if (isa<PEGThetaNode>(Node))
+      opts += ",shape=doublecircle";
+
+    return opts;
+  };
+
+  static std::string getEdgeAttributes(const PEGNode *Source, PEGNode *const *I,
+                                       const DotPEGFunction *) {
+    std::string opts = "splines=true";
+    opts += ",color=\"#707070\"";
+
+    // Force condition nodes to be short.
+    if(isa<PEGConditionNode>(Source)) opts += ",arrowhead=none,weight=2";
+    else opts += ",arrowhead=empty";
+    return opts;
+  }
+
+  static std::string getNodeLabel(const PEGNode *Node, const DotPEGFunction *) {
+
+    assert(Node);
+
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << Node->getName();
+
+    return OS.str();
+  }
+};
+// =========================================================
 
 LoopSet makeLoopSet(Loop *L) {
   LoopSet LS;
@@ -136,7 +184,9 @@ void PEGThetaNode::print(raw_ostream &os) const { os << getName(); }
 // PEGBasicBlock
 //===----------------------------------------------------------------------===//
 
-bool PEGBasicBlock::isLoopHeader() const { return !IsVirtualForwardNode && LI.isLoopHeader(BB); }
+bool PEGBasicBlock::isLoopHeader() const {
+  return !IsVirtualForwardNode && LI.isLoopHeader(BB);
+}
 void PEGBasicBlock::print(raw_ostream &os) const {
   os << "pegbb-" << this->getName() << "\n";
   if (Children.size())
@@ -157,7 +207,7 @@ makePEGBasicBlockName(const BasicBlock *BB,
   if (IsVirtualForwardNode)
     name += "-virtual";
   if (VirtualForwardNode)
-      name += "-concrete";
+    name += "-concrete";
   return name;
 }
 PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
@@ -165,13 +215,14 @@ PEGBasicBlock::PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
                              bool isEntry,
                              const PEGBasicBlock *VirtualForwardNode,
                              bool IsVirtualForwardNode)
-    : PEGNode(PEGNodeKind::PEGNK_BB, Parent,
-              makePEGBasicBlockName(BB, VirtualForwardNode, IsVirtualForwardNode)),
+    : PEGNode(
+          PEGNodeKind::PEGNK_BB, Parent,
+          makePEGBasicBlockName(BB, VirtualForwardNode, IsVirtualForwardNode)),
       LI(LI), IsEntry(isEntry), APEG(true), Parent(Parent), BB(BB),
       SurroundingLoop(SurroundingLoop), VirtualForwardNode(VirtualForwardNode),
       IsVirtualForwardNode(IsVirtualForwardNode) {
 
- // IsVirtualForwardNode => !VirtualForwardNode
+  // IsVirtualForwardNode => !VirtualForwardNode
   assert(!IsVirtualForwardNode || !VirtualForwardNode);
   if (VirtualForwardNode) {
     assert(VirtualForwardNode->IsVirtualForwardNode &&
