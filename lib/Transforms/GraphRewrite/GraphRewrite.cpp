@@ -48,7 +48,7 @@ class DotPEGFunction {
 public:
   using iterator = PEGFunction::node_iterator;
   using const_iterator = PEGFunction::const_node_iterator;
-  DotPEGFunction(PEGFunction *F) : F(F){};
+  explicit DotPEGFunction(PEGFunction *F) : F(F){};
 
   std::string getName() const { return F->getName(); }
 
@@ -107,7 +107,7 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
 
   static std::string getGraphName(const DotPEGFunction *F) {
-    return "PEG for '" + F->getName() + "' function";
+    return "PEGs for '" + F->getName() + "' function";
   }
 
   static std::string getNodeAttributes(const PEGNode *Node,
@@ -278,17 +278,17 @@ struct DOTGraphTraits<const PEGFunction *> : public DefaultDOTGraphTraits {
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
 
   static std::string getGraphName(const PEGFunction *F) {
-    return "PEG for '" + F->getName().str() + "' function";
+    return "PEGBBs for '" + F->getName().str() + "' function";
   }
 
-  static std::string getNodeLabel(const PEGNode *Node, const PEGFunction *) {
+  static std::string getNodeLabel(const int Node, const PEGFunction *) {
+      errs() << __PRETTY_FUNCTION__ << "\n";
 
     assert(Node);
 
     std::string Str;
     raw_string_ostream OS(Str);
-    OS << Node->getName();
-
+    // OS << Node->getName();
     return OS.str();
   }
 };
@@ -297,7 +297,6 @@ struct DOTGraphTraits<const PEGFunction *> : public DefaultDOTGraphTraits {
 // GraphRewrite
 //===----------------------------------------------------------------------===//
 
-// using BBSet = SmallSet<const BasicBlock *, 4>;
 class BBEdge {
 private:
   const PEGBasicBlock *Source;
@@ -488,26 +487,20 @@ bool isSubset(const std::set<T> &MayInner, const std::set<T> &Outer) {
 const Loop *getOutermostLoopNotInLoop(ConstLoopSet &Inner,
                                       ConstLoopSet &Outer) {
   assert(isSubset(Inner, Outer));
-  const Loop *CurOutermost = nullptr;
-  for (const Loop *CurOuter : Outer) {
-    bool ContainsAllInner = true;
-    for (const Loop *CurInner : Inner)
-      if (!CurOuter->contains(CurInner))
-        ContainsAllInner = false;
+  assert(Outer.size() > 0);
 
-    if (!ContainsAllInner)
-      continue;
-
-    if (!CurOutermost) {
-      CurOuter = CurOutermost;
+  const Loop *Outermost = nullptr;
+  for (const Loop *L : Outer) {
+    if (!Outermost) {
+      Outermost = L;
     } else {
-      if (CurOuter->contains(CurOutermost))
-        CurOuter = CurOutermost;
+      if (L->contains(Outermost))
+        L = Outermost;
     }
   }
 
-  assert(CurOutermost);
-  return CurOutermost;
+  assert(Outermost);
+  return Outermost;
 }
 
 BBEdgeSet GraphRewrite::computeBreakEdges(const Loop *L) const {
@@ -545,7 +538,6 @@ bool isReachableFromEdge(const BBEdge *Source, const BBEdge *Dest,
 PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
                                       ConstLoopSet Outer) const {
 
-  getchar();
   errs() << "===\n";
   // errs() << __PRETTY_FUNCTION__ << "\n";
   // errs() << "Source: " << Source << "\n";
@@ -631,7 +623,7 @@ PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
     PEGConditionNode *Condition = getConditionNodeFor(CommonDom);
     return new PEGPhiNode(Condition, TrueNode, FalseNode);
   } else {
-    const Loop *LNew = getOutermostLoopNotInLoop(CommonDomLoopSet, Outer);
+    const Loop *LNew = getOutermostLoopNotInLoop(Outer, CommonDomLoopSet);
 
     Outer.insert(LNew);
     PEGNode *Val = makeDecideNode(Source, In, VF, Outer);
@@ -661,6 +653,8 @@ static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
   if (LCheck != L)
     return false;
 
+  if (Check->getName() == "for.body")
+      errs() << "### FOR.BODY is LOOP LATCH: " << L->isLoopLatch(Check) << "\n";
   return L->isLoopLatch(Check);
 };
 
@@ -699,6 +693,20 @@ PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
            << "\n";
     return Decider;
   }
+}
+
+static void writePEGBBsToDotFile(PEGFunction &F) {
+  std::string Filename = ("pegbbs." + F.getName() + ".dot").str();
+  errs() << "Writing '" << Filename << "'...";
+
+  std::error_code EC;
+  raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
+
+  if (!EC)
+    WriteGraph(File, &F);
+  else
+    errs() << "  error opening file for writing!";
+  errs() << "\n";
 }
 
 static void writePEGToDotFile(PEGFunction &F) {
@@ -760,13 +768,16 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
              << "\n";
       // We need to create edges carefully if this is a loop header.
       if (LI.isLoopHeader(BB)) {
+          errs() << "******************************************\n";
         // Loop latches are forwarded to the virtual node.
         if (isLoopLatch(LI, PEGBB->getSurroundingLoop(), PredBB)) {
+            errs() << "LOOP LATCH: " << PredBB->getName() << "\n";
           // We don't expose a mutable getVirtualForwardNode on purpose.
           // we want our data structures to be immutable as much as possible
           // after construction. #haskell.
           PEGBasicBlock *VirtualForwardPEGBB =
               VirtualForwardMap.find(PEGBB)->second;
+          assert(VirtualForwardPEGBB && "loop header does not have a virtual forward node");
           PEGBasicBlock::addEdge(PredPEGBB, VirtualForwardPEGBB);
         } else {
           // non loop latches are attached to the real node.
@@ -810,6 +821,7 @@ bool GraphRewrite::run(Function &F) {
 
   if (DotPEG) {
     writePEGToDotFile(*PEGF);
+    writePEGBBsToDotFile(*PEGF);
   }
   // outs() << *PEGF << "\n";
   RootEdge = None;
