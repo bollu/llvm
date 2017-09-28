@@ -36,6 +36,10 @@ static cl::opt<bool>
     DotPEG("dot-peg", cl::init(false), cl::Hidden, cl::ZeroOrMore,
            cl::desc("write PEG from -graphrewrite to a dot file"));
 
+static cl::opt<bool>
+    DotPEGDrawAllNodes("dot-peg-draw-all-nodes", cl::init(false), cl::Hidden,
+                       cl::ZeroOrMore,
+                       cl::desc("write PEG from -graphrewrite to a dot file"));
 // a DOTPEGFunction exposes a node iterator as iterator, so that we can generate
 // graphs for it
 class DotPEGFunction {
@@ -118,14 +122,25 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
     return opts;
   };
 
+  static bool isNodeHidden(const PEGNode *N) {
+    // don't print condition nodes with no predecessors, because
+    // they are present for every node.
+    if (isa<PEGConditionNode>(N) && N->predecessorsSize() == 0 &&
+        !DotPEGDrawAllNodes)
+      return true;
+    return false;
+  }
+
   static std::string getEdgeAttributes(const PEGNode *Source, PEGNode *const *I,
                                        const DotPEGFunction *) {
     std::string opts = "splines=true";
     opts += ",color=\"#707070\"";
 
     // Force condition nodes to be short.
-    if(isa<PEGConditionNode>(Source)) opts += ",arrowhead=none,weight=2";
-    else opts += ",arrowhead=empty";
+    if (isa<PEGConditionNode>(Source))
+      opts += ",arrowhead=none,weight=2";
+    else
+      opts += ",arrowhead=empty";
     return opts;
   }
 
@@ -189,10 +204,9 @@ bool PEGBasicBlock::isLoopHeader() const {
 }
 void PEGBasicBlock::print(raw_ostream &os) const {
   os << "pegbb-" << this->getName() << "\n";
-  if (Children.size())
-    for (const PEGNode *Child : Children) {
-      errs() << "\t-" << *Child << "\n";
-    }
+  for (const PEGBasicBlock *Child : this->Successors) {
+    errs() << "\tBBchild:-" << Child->getName() << "\n";
+  }
 }
 
 void PEGBasicBlock::printAsOperand(raw_ostream &OS, bool PrintType) const {
@@ -240,14 +254,7 @@ ConstLoopSet PEGBasicBlock::getLoopSet() const {
 // PEGFunction
 //===----------------------------------------------------------------------===//
 
-void PEGFunction::print(raw_ostream &os) const {
-  /*
-for (const PEGNode &N : Nodes) {
-  errs() << N << "\n\n";
-}
-*/
-  errs() << "fn";
-}
+void PEGFunction::print(raw_ostream &os) const { errs() << "fn"; }
 raw_ostream &llvm::operator<<(raw_ostream &os, const PEGFunction &F) {
   F.print(os);
   return os;
@@ -455,9 +462,9 @@ std::set<T> filterSet(const std::set<T> &In, F Predicate) {
 // I know, this is WTF, and will fail on switch. sue me :(
 std::pair<const PEGBasicBlock *, const PEGBasicBlock *>
 getTrueFalseSuccessors(const PEGBasicBlock *BB) {
-  errs() << __PRETTY_FUNCTION__ << "\n\tBB: " << *BB << "\n";
-  for (auto Succ : BB->successors())
-    errs() << *Succ << "\n";
+  // errs() << "*" << __PRETTY_FUNCTION__ << "\nBB: " << BB->getName() << "\n";
+  // for (auto Succ : BB->successors())
+  //   errs() << "\tSuccessor: " << *Succ << "\n";
 
   assert(!BB->getUniqueSuccessor());
   // if (const BasicBlock *Succ = BB->getSingleSuccessor())
@@ -525,45 +532,48 @@ void printConstLoopSet(ConstLoopSet &LS) {
   }
 }
 
-bool isReachable(const PEGBasicBlock *From, const PEGBasicBlock *To,
+bool isReachableFromEdge(const BBEdge *Source, const BBEdge *Dest,
                  const PEGDominatorTree &DT) {
-  if (DT.dominates(From, To))
-    return true;
 
-  std::set<const PEGBasicBlock *> Visited(bf_begin(From), bf_end(From));
-  return Visited.count(To);
+  if (*Source == *Dest) return true;
+  if (Source->getDest() == Dest->getSource()) return true;
+
+  std::set<const PEGBasicBlock *> Visited(bf_begin(Source->getDest()), bf_end(Source->getDest()));
+  return Visited.count(*Dest->getSource());
 }
 
 PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
                                       ConstLoopSet Outer) const {
 
+  getchar();
   errs() << "===\n";
-  errs() << __PRETTY_FUNCTION__ << "\n";
-  errs() << "Source: " << Source << "\n";
-  errs() << "\n\n";
-  errs() << "in:\n";
+  // errs() << __PRETTY_FUNCTION__ << "\n";
+  // errs() << "Source: " << Source << "\n";
+  // errs() << "\n\n";
+  errs() << "### In:\n";
   for (const BBEdge &E : In)
     errs() << E << "\n";
-  errs() << "\n\n";
+  errs() << "---\n";
 
-  errs() << "Outer: ";
-  printConstLoopSet(Outer);
-  errs() << "\n\n";
+  // errs() << "Outer: ";
+  // printConstLoopSet(Outer);
+  // errs() << "\n";
 
   const PEGBasicBlock *CommonDom = findCommonDominator(PEGDT, In);
   errs() << "CommonDom: " << CommonDom->getName() << "\n";
+  errs() << "---\n";
 
   const Loop *CommonDomLoop = CommonDom->getSurroundingLoop();
   ConstLoopSet CommonDomLoopSet = makeConstLoopSet(CommonDomLoop);
-  errs() << "CommonDomLoopSet: ";
-  printConstLoopSet(CommonDomLoopSet);
+  // errs() << "CommonDomLoopSet: ";
+  // printConstLoopSet(CommonDomLoopSet);
 
   if (isSubset(CommonDomLoopSet, Outer)) {
     errs() << "isSubset(CommonDomLoopSet, Outer)) == T\n";
     auto getCommonMappedPEGNode = [&]() -> PEGNode * {
       const PEGNode *CommonNode = nullptr;
       for (const BBEdge &E : In) {
-        errs() << "VF(" << E << ") = " << VF(E)->getName() << "\n";
+        // errs() << "VF(" << E << ") = " << VF(E)->getName() << "\n";
         if (!CommonNode) {
           CommonNode = VF(E);
           continue;
@@ -576,7 +586,7 @@ PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
     };
     // Perform optimization when all nodes are mapped to the same thing.
     if (PEGNode *Common = getCommonMappedPEGNode()) {
-      errs() << "Common: " << Common->getName() << "\n";
+      // errs() << "Common: " << Common->getName() << "\n";
       return Common;
     }
 
@@ -591,23 +601,31 @@ PEGNode *GraphRewrite::makeDecideNode(BBEdge Source, BBEdgeSet &In, ValueFn VF,
     assert(FalseBB && "FalseBB uninitialized");
 
     BBEdgeSet TrueEdges = filterSet(In, [&](const BBEdge &E) -> bool {
-      return isReachable(*E.getSource(), TrueBB, PEGDT);
+      BBEdge TrueEdge = BBEdge::create(CommonDom, TrueBB);
+      return isReachableFromEdge(&TrueEdge, &E, PEGDT);
     });
 
-    errs() << "TrueEdges: " << TrueEdges.size() << "\n";
-    ;
+    errs() << "### TrueEdges:\n";
     for (auto E : TrueEdges) {
       errs() << "\t-" << E << "\n";
-    }
-
-    PEGNode *TrueNode = makeDecideNode(Source, TrueEdges, VF, Outer);
-    errs() << "True: " << *TrueNode << "\n";
+    };
 
     BBEdgeSet FalseEdges = filterSet(In, [&](const BBEdge &E) -> bool {
-      return isReachable(*E.getSource(), FalseBB, PEGDT);
+      BBEdge FalseEdge = BBEdge::create(CommonDom, FalseBB);
+      return isReachableFromEdge(&FalseEdge, &E, PEGDT);
     });
 
-    PEGNode *FalseNode = makeDecideNode(Source, FalseEdges, VF, Outer);
+    errs() << "### FalseEdges:\n";
+    for (auto E : FalseEdges) {
+      errs() << "\t-" << E << "\n";
+    };
+
+    BBEdge TrueEdge = BBEdge::create(CommonDom, TrueBB);
+    PEGNode *TrueNode = makeDecideNode(TrueEdge, TrueEdges, VF, Outer);
+    errs() << "True: " << *TrueNode << "\n";
+
+    BBEdge FalseEdge = BBEdge::create(CommonDom, FalseBB);
+    PEGNode *FalseNode = makeDecideNode(FalseEdge, FalseEdges, VF, Outer);
     errs() << "False: " << *FalseNode << "\n";
 
     PEGConditionNode *Condition = getConditionNodeFor(CommonDom);
@@ -683,10 +701,26 @@ PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
   }
 }
 
+static void writePEGToDotFile(PEGFunction &F) {
+  const DotPEGFunction DotF(&F);
+  std::string Filename = ("peg." + F.getName() + ".dot").str();
+  errs() << "Writing '" << Filename << "'...";
+
+  std::error_code EC;
+  raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
+
+  if (!EC)
+    WriteGraph(File, &DotF);
+  else
+    errs() << "  error opening file for writing!";
+  errs() << "\n";
+}
+
 PEGFunction *GraphRewrite::createAPEG(const Function &F) {
   std::map<const PEGBasicBlock *, PEGBasicBlock *> VirtualForwardMap;
   PEGFunction *PEGF = new PEGFunction(F);
   for (const BasicBlock &BB : F) {
+    errs() << __LINE__ << ":" << BB.getName() << "\n";
     const bool IsEntry = &BB == &F.getEntryBlock();
     const Loop *L = LI.getLoopFor(&BB);
 
@@ -720,7 +754,10 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
     const BasicBlock *BB = It.first;
     PEGBasicBlock *PEGBB = It.second;
     for (auto PredBB : predecessors(BB)) {
+
       PEGBasicBlock *PredPEGBB = BBMap.find(PredBB)->second;
+      errs() << "BB: " << PEGBB->getName() << " |Pred: " << PredPEGBB->getName()
+             << "\n";
       // We need to create edges carefully if this is a loop header.
       if (LI.isLoopHeader(BB)) {
         // Loop latches are forwarded to the virtual node.
@@ -741,10 +778,19 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
         PEGBasicBlock::addEdge(PredPEGBB, PEGBB);
       }
     }
+  }
 
-    // Once we have added the edge, recalcuate the domtree.
-    PEGDT.recalculate(*PEGF);
+  errs() << "====\n";
+  errs() << "*" << __PRETTY_FUNCTION__ << "BBs:\n";
+  for (auto It : BBMap) {
+    errs() << *It.second << "\n";
+  }
+  errs() << "====\n";
+  // Once we have added the edge, recalcuate the domtree.
+  PEGDT.recalculate(*PEGF);
 
+  for (auto It : BBMap) {
+    PEGBasicBlock *PEGBB = It.second;
     if (!PEGBB->isEntry()) {
       PEGNode *Child = computeInputs(PEGBB);
       if (Child)
@@ -756,21 +802,6 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
 
   return PEGF;
 };
-
-static void writePEGToDotFile(PEGFunction &F) {
-  const DotPEGFunction DotF(&F);
-  std::string Filename = ("peg." + F.getName() + ".dot").str();
-  errs() << "Writing '" << Filename << "'...";
-
-  std::error_code EC;
-  raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
-
-  if (!EC)
-    WriteGraph(File, &DotF);
-  else
-    errs() << "  error opening file for writing!";
-  errs() << "\n";
-}
 
 bool GraphRewrite::run(Function &F) {
   this->F = &F;

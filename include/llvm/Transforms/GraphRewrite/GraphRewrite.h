@@ -20,6 +20,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/InstCombine/InstCombineWorklist.h"
+#include "llvm/ADT/SetVector.h"
 #include <set>
 
 namespace llvm {
@@ -41,6 +42,9 @@ public:
     PEGNK_Pass
   };
   using ChildrenType = SmallVector<PEGNode *, 2>;
+  using PredecessorType = SmallVector<PEGNode *, 2>;
+  int predecessorsSize() const { return Predecessors.size(); }
+
   using iterator = ChildrenType::iterator;
   using const_iterator = ChildrenType::const_iterator;
 
@@ -70,9 +74,15 @@ public:
 
 protected:
   PEGNode(PEGNodeKind Kind, PEGFunction *Parent, const StringRef Name);
-  ChildrenType Children;
+  void addChild(PEGNode *Child) {
+    Children.push_back(Child);
+    Child->Predecessors.push_back(this);
+  }
 
 private:
+  ChildrenType Children;
+  PredecessorType Predecessors;
+
   PEGFunction *Parent;
   const PEGNodeKind Kind;
   std::string Name;
@@ -93,16 +103,19 @@ class PEGBasicBlock
   PEGFunction *Parent;
   const BasicBlock *BB;
   const Loop *SurroundingLoop;
-  std::vector<PEGBasicBlock *> Predecessors;
-  std::vector<PEGBasicBlock *> Successors;
+  // this is stupid, I need to reconcile this with the PEGNode children.
+  SetVector<PEGBasicBlock *> Predecessors;
+  SetVector<PEGBasicBlock *> Successors;
   const PEGBasicBlock *VirtualForwardNode;
   bool IsVirtualForwardNode;
 
   void addPredecessor(PEGBasicBlock *Pred) {
-    this->Predecessors.push_back(Pred);
+    this->Predecessors.insert(Pred);
   }
 
-  void addSuccessor(PEGBasicBlock *Succ) { this->Successors.push_back(Succ); }
+  void addSuccessor(PEGBasicBlock *Succ) {
+    this->Successors.insert(Succ);
+  }
 
 public:
   explicit PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
@@ -133,12 +146,12 @@ public:
     return N->getKind() == PEGNode::PEGNK_BB;
   }
 
-
   const PEGBasicBlock *getVirtualForwardNode() const {
-      if(!VirtualForwardNode) {
-          errs() << "BB with failing virtualForwardNode: " << getName() << "\n";;
-      }
-      return VirtualForwardNode;
+    if (!VirtualForwardNode) {
+      errs() << "BB with failing virtualForwardNode: " << getName() << "\n";
+      ;
+    }
+    return VirtualForwardNode;
   }
 
   const Loop *getSurroundingLoop() const { return SurroundingLoop; }
@@ -147,8 +160,8 @@ public:
 
   ConstLoopSet getLoopSet() const;
 
-  using iterator = std::vector<PEGBasicBlock *>::iterator;
-  using const_iterator = std::vector<const PEGBasicBlock *>::const_iterator;
+  using iterator = SetVector<PEGBasicBlock *>::iterator;
+  using const_iterator = SetVector<const PEGBasicBlock *>::const_iterator;
 
   iterator begin_succ() { return this->Successors.begin(); }
   iterator end_succ() { return this->Successors.end(); }
@@ -239,8 +252,7 @@ public:
   PEGConditionNode(PEGBasicBlock *PEGBB)
       : PEGNode(PEGNK_Cond, PEGBB->getParent(), makeName(PEGBB)), PEGBB(PEGBB) {
     assert(PEGBB);
-    Children.clear();
-    Children.push_back(PEGBB);
+    addChild(PEGBB);
   };
   static bool classof(const PEGNode *N) {
     return N->getKind() == PEGNode::PEGNK_Cond;
@@ -266,7 +278,9 @@ public:
     assert(True);
     assert(False);
     assert(Cond);
-    Children = {Cond, True, False};
+    addChild(Cond);
+    addChild(True);
+    addChild(False);
   }
 
   static bool classof(const PEGNode *N) {
@@ -284,7 +298,7 @@ class PEGPassNode : public PEGNode {
 public:
   PEGPassNode(const Loop *L, PEGNode *Cond)
       : PEGNode(PEGNK_Pass, Cond->getParent(), makeName(Cond)), L(L) {
-    Children = {Cond};
+    addChild(Cond);
   }
   void print(raw_ostream &os) const override;
 
@@ -306,7 +320,8 @@ public:
   PEGEvalNode(const Loop *L, PEGNode *Value, PEGPassNode *Pass)
       : PEGNode(PEGNK_Eval, Value->getParent(), makeName(Value, Pass)),
         Value(Value), Pass(Pass), L(L) {
-    Children = {Value, Pass};
+    addChild(Value);
+    addChild(Pass);
   };
   void print(raw_ostream &os) const override;
 
@@ -328,7 +343,8 @@ public:
   PEGThetaNode(PEGNode *Base, PEGNode *Recur)
       : PEGNode(PEGNK_Theta, Base->getParent(), makeName(Base, Recur)),
         Base(Base), Recur(Recur) {
-    Children = {Base, Recur};
+    addChild(Base);
+    addChild(Recur);
   };
 
   void print(raw_ostream &os) const override;
