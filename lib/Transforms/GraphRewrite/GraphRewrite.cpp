@@ -106,12 +106,11 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
 
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
 
-  static std::string getGraphName(const DotPEGFunction *F) {
+  std::string getGraphName(const DotPEGFunction *F) {
     return "PEGs for '" + F->getName() + "' function";
   }
 
-  static std::string getNodeAttributes(const PEGNode *Node,
-                                       const DotPEGFunction *) {
+  std::string getNodeAttributes(const PEGNode *Node, const DotPEGFunction *) {
     std::string opts = "fontname=menlo";
     opts += ",color=\"#707070\"";
     if (isa<PEGConditionNode>(Node))
@@ -122,7 +121,7 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
     return opts;
   };
 
-  static bool isNodeHidden(const PEGNode *N) {
+  bool isNodeHidden(const PEGNode *N) {
     // don't print condition nodes with no predecessors, because
     // they are present for every node.
     if (isa<PEGConditionNode>(N) && N->predecessorsSize() == 0 &&
@@ -131,8 +130,8 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
     return false;
   }
 
-  static std::string getEdgeAttributes(const PEGNode *Source, PEGNode *const *I,
-                                       const DotPEGFunction *) {
+  std::string getEdgeAttributes(const PEGNode *Source, PEGNode *const *I,
+                                const DotPEGFunction *) {
     std::string opts = "splines=true";
     opts += ",color=\"#707070\"";
 
@@ -144,7 +143,7 @@ struct DOTGraphTraits<const DotPEGFunction *> : public DefaultDOTGraphTraits {
     return opts;
   }
 
-  static std::string getNodeLabel(const PEGNode *Node, const DotPEGFunction *) {
+  std::string getNodeLabel(const PEGNode *Node, const DotPEGFunction *) {
 
     assert(Node);
 
@@ -277,19 +276,33 @@ struct DOTGraphTraits<const PEGFunction *> : public DefaultDOTGraphTraits {
 
   DOTGraphTraits(bool isSimple = false) : DefaultDOTGraphTraits(true) {}
 
-  static std::string getGraphName(const PEGFunction *F) {
+  std::string getGraphName(const PEGFunction *F) {
     return "PEGBBs for '" + F->getName().str() + "' function";
   }
 
-  static std::string getNodeLabel(const int Node, const PEGFunction *) {
-      errs() << __PRETTY_FUNCTION__ << "\n";
+  std::string getNodeLabel(const PEGNode *Node, const PEGFunction *) {
+    errs() << __PRETTY_FUNCTION__ << "\n";
 
     assert(Node);
 
     std::string Str;
     raw_string_ostream OS(Str);
-    // OS << Node->getName();
+    OS << Node->getName();
     return OS.str();
+  }
+
+  std::string getNodeAttributes(const PEGNode *Node, const PEGFunction *) {
+    std::string opts = "fontname=menlo";
+    return opts;
+  };
+
+  std::string
+  getEdgeAttributes(const PEGNode *Source,
+                    GraphTraits<const PEGFunction *>::ChildIteratorType I,
+                    const PEGFunction *) {
+    std::string opts = "splines=true";
+    opts += ",color=\"#707070\"";
+    return opts;
   }
 };
 
@@ -526,12 +539,15 @@ void printConstLoopSet(ConstLoopSet &LS) {
 }
 
 bool isReachableFromEdge(const BBEdge *Source, const BBEdge *Dest,
-                 const PEGDominatorTree &DT) {
+                         const PEGDominatorTree &DT) {
 
-  if (*Source == *Dest) return true;
-  if (Source->getDest() == Dest->getSource()) return true;
+  if (*Source == *Dest)
+    return true;
+  if (Source->getDest() == Dest->getSource())
+    return true;
 
-  std::set<const PEGBasicBlock *> Visited(bf_begin(Source->getDest()), bf_end(Source->getDest()));
+  std::set<const PEGBasicBlock *> Visited(bf_begin(Source->getDest()),
+                                          bf_end(Source->getDest()));
   return Visited.count(*Dest->getSource());
 }
 
@@ -654,7 +670,7 @@ static bool isLoopLatch(const LoopInfo &LI, const Loop *L,
     return false;
 
   if (Check->getName() == "for.body")
-      errs() << "### FOR.BODY is LOOP LATCH: " << L->isLoopLatch(Check) << "\n";
+    errs() << "### FOR.BODY is LOOP LATCH: " << L->isLoopLatch(Check) << "\n";
   return L->isLoopLatch(Check);
 };
 
@@ -703,7 +719,7 @@ static void writePEGBBsToDotFile(PEGFunction &F) {
   raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
 
   if (!EC)
-    WriteGraph(File, &F);
+    WriteGraph(File, (const PEGFunction *)&F);
   else
     errs() << "  error opening file for writing!";
   errs() << "\n";
@@ -718,7 +734,7 @@ static void writePEGToDotFile(PEGFunction &F) {
   raw_fd_ostream File(Filename, EC, sys::fs::F_Text);
 
   if (!EC)
-    WriteGraph(File, &DotF);
+    WriteGraph(File, (const DotPEGFunction *)&DotF);
   else
     errs() << "  error opening file for writing!";
   errs() << "\n";
@@ -768,16 +784,17 @@ PEGFunction *GraphRewrite::createAPEG(const Function &F) {
              << "\n";
       // We need to create edges carefully if this is a loop header.
       if (LI.isLoopHeader(BB)) {
-          errs() << "******************************************\n";
+        errs() << "******************************************\n";
         // Loop latches are forwarded to the virtual node.
         if (isLoopLatch(LI, PEGBB->getSurroundingLoop(), PredBB)) {
-            errs() << "LOOP LATCH: " << PredBB->getName() << "\n";
+          errs() << "LOOP LATCH: " << PredBB->getName() << "\n";
           // We don't expose a mutable getVirtualForwardNode on purpose.
           // we want our data structures to be immutable as much as possible
           // after construction. #haskell.
           PEGBasicBlock *VirtualForwardPEGBB =
               VirtualForwardMap.find(PEGBB)->second;
-          assert(VirtualForwardPEGBB && "loop header does not have a virtual forward node");
+          assert(VirtualForwardPEGBB &&
+                 "loop header does not have a virtual forward node");
           PEGBasicBlock::addEdge(PredPEGBB, VirtualForwardPEGBB);
         } else {
           // non loop latches are attached to the real node.
@@ -820,8 +837,8 @@ bool GraphRewrite::run(Function &F) {
   PEGFunction *PEGF = createAPEG(F);
 
   if (DotPEG) {
-    writePEGToDotFile(*PEGF);
     writePEGBBsToDotFile(*PEGF);
+    writePEGToDotFile(*PEGF);
   }
   // outs() << *PEGF << "\n";
   RootEdge = None;
