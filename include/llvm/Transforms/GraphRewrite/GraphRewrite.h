@@ -17,10 +17,10 @@
 #define LLVM_TRANSFORMS_GRAPH_REWRITE_H
 
 #include "llvm/ADT/GraphTraits.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/InstCombine/InstCombineWorklist.h"
-#include "llvm/ADT/SetVector.h"
 #include <set>
 
 namespace llvm {
@@ -109,13 +109,9 @@ class PEGBasicBlock
   const PEGBasicBlock *VirtualForwardNode;
   bool IsVirtualForwardNode;
 
-  void addPredecessor(PEGBasicBlock *Pred) {
-    this->Predecessors.insert(Pred);
-  }
+  void addPredecessor(PEGBasicBlock *Pred) { this->Predecessors.insert(Pred); }
 
-  void addSuccessor(PEGBasicBlock *Succ) {
-    this->Successors.insert(Succ);
-  }
+  void addSuccessor(PEGBasicBlock *Succ) { this->Successors.insert(Succ); }
 
 public:
   explicit PEGBasicBlock(const LoopInfo &LI, PEGFunction *Parent,
@@ -154,7 +150,13 @@ public:
     return VirtualForwardNode;
   }
 
-  const Loop *getSurroundingLoop() const { return SurroundingLoop; }
+  const Loop *getSurroundingLoop() const {
+    if (IsVirtualForwardNode) {
+      return nullptr;
+    } else {
+      return SurroundingLoop;
+    }
+  }
 
   bool isLoopHeader() const;
 

@@ -682,10 +682,12 @@ PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
 
   // When we are looking for stuff inside the loop, we are in a "virtual" node
   // that is not a loop header
+  BBEdgeSet In = getInEdges(BB);
+  PEGNode *Decider = makeDecideNode(
+          *RootEdge, In, createValueFnGetEdgeSource(*RootEdge), BB->getLoopSet());
   if (BB->isLoopHeader()) {
     const Loop *L = BB->getSurroundingLoop();
 
-    BBEdgeSet In = getInEdges(BB);
 
     {
       errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
@@ -694,17 +696,12 @@ PEGNode *GraphRewrite::computeInputs(const PEGBasicBlock *BB) const {
       for (const BBEdge &I : In)
         errs() << "\t-" << I << "\n";
     };
-    PEGNode *Decider = makeDecideNode(
-        *RootEdge, In, createValueFnGetEdgeSource(*RootEdge), BB->getLoopSet());
     errs() << "* Decider: " << Decider->getName() << "\n";
     errs() << "* VirtualForwardNode:" << BB->getVirtualForwardNode() << "\n";
     return new PEGThetaNode(Decider,
                             computeInputs(BB->getVirtualForwardNode()));
   } else {
 
-    BBEdgeSet In = getInEdges(BB);
-    PEGNode *Decider = makeDecideNode(
-        *RootEdge, In, createValueFnGetEdgeSource(*RootEdge), BB->getLoopSet());
     errs() << "* BB: " << BB->getName() << " | Decider: " << Decider->getName()
            << "\n";
     return Decider;
