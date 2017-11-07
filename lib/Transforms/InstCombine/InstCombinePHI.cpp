@@ -290,6 +290,7 @@ static bool isSafeAndProfitableToSinkLoad(LoadInst *L) {
 }
 
 Instruction *InstCombiner::FoldPHIArgLoadIntoPHI(PHINode &PN) {
+  return nullptr;
   LoadInst *FirstLI = cast<LoadInst>(PN.getIncomingValue(0));
 
   // FIXME: This is overconservative; this transform is allowed in some cases

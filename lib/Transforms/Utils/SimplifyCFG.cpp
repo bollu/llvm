@@ -1634,6 +1634,8 @@ namespace {
 /// ends with an unconditional branch. If it is true, sink any common code
 /// in the two predecessors to BBEnd.
 static bool SinkThenElseCodeToEnd(BranchInst *BI1) {
+  return false;
+
   assert(BI1->isUnconditional());
   BasicBlock *BBEnd = BI1->getSuccessor(0);
 
