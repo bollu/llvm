@@ -159,7 +159,7 @@ class DIUpdater : public InstVisitor<DIUpdater> {
   StringRef Directory;
 
   // CU nodes needed when creating DI subprograms
-  MDNode *FileNode;
+  DIFile *FileNode;
   DILexicalBlockFile *LexicalBlockFileNode;
 
 
@@ -168,7 +168,7 @@ class DIUpdater : public InstVisitor<DIUpdater> {
   DIScope *Scope;
 
   ValueMap<const Function *, DISubprogram *> SubprogramDescriptors;
-  DenseMap<const Type *, MDNode *> TypeDescriptors;
+  DenseMap<const Type *, DIType *> TypeDescriptors;
 
 public:
   DIUpdater(Module &M, StringRef Filename = StringRef(),
@@ -366,8 +366,8 @@ private:
 
   /// Returns the MDNode that represents type T if it is already created, or 0
   /// if it is not.
-  MDNode *getType(const Type *T) {
-    typedef DenseMap<const Type *, MDNode *>::const_iterator TypeNodeIter;
+  DIType *getType(const Type *T) {
+    typedef DenseMap<const Type *, DIType *>::const_iterator TypeNodeIter;
     TypeNodeIter i = TypeDescriptors.find(T);
     if (i != TypeDescriptors.end())
       return i->second;
@@ -375,81 +375,83 @@ private:
   }
 
   /// Returns a DebugInfo type from an LLVM type T.
-  DIDerivedType getOrCreateType(Type *T) {
-    MDNode *N = getType(T);
+  DIType *getOrCreateType(Type *T) {
+    DIType *N = getType(T);
     if (N)
-      return DIDerivedType(N);
+      return N;
     else if (T->isVoidTy())
-      return DIDerivedType(nullptr);
+      return Builder.createUnspecifiedType("void");
     else if (T->isStructTy()) {
+        // NOTE: where the fuck does DINodeArray come from?
       N = Builder.createStructType(
-          LexicalBlockFileNode, T->getStructName(), DIFile(FileNode),
-          0, Layout.getTypeSizeInBits(T), Layout.getABITypeAlignment(T), 0,
-          DIType(nullptr), DIArray(nullptr)); // filled in later
+          LexicalBlockFileNode, T->getStructName(), FileNode,
+          /*LineNumber=*/0, Layout.getTypeSizeInBits(T), Layout.getABITypeAlignment(T), /*DIFlags=*/llvm::DINode::FlagZero,
+          /*DerivedFrom=*/ nullptr, llvm::DINodeArray()); // filled in later
 
       // N is added to the map (early) so that element search below can find it,
       // so as to avoid infinite recursion for structs that contain pointers to
       // their own type.
       TypeDescriptors[T] = N;
-      DICompositeType StructDescriptor(N);
+      assert(false && "unimplmented");
+      // DICompositeType StructDescriptor(N);
 
-      SmallVector<Value *, 4> Elements;
-      for (unsigned i = 0; i < T->getStructNumElements(); ++i)
-        Elements.push_back(getOrCreateType(T->getStructElementType(i)));
+      // SmallVector<Value *, 4> Elements;
+      // for (unsigned i = 0; i < T->getStructNumElements(); ++i)
+      //   Elements.push_back(getOrCreateType(T->getStructElementType(i)));
 
-      // set struct elements
-      StructDescriptor.setArrays(Builder.getOrCreateArray(Elements));
+      // // set struct elements
+      // StructDescriptor.setArrays(Builder.getOrCreateArray(Elements));
     } else if (T->isPointerTy()) {
       Type *PointeeTy = T->getPointerElementType();
       if (!(N = getType(PointeeTy)))
         N = Builder.createPointerType(
             getOrCreateType(PointeeTy), Layout.getPointerTypeSizeInBits(T),
-            Layout.getPrefTypeAlignment(T), getTypeName(T));
+            Layout.getPrefTypeAlignment(T), /*DWARFAddressSpace=*/ None, getTypeName(T));
     } else if (T->isArrayTy()) {
-      SmallVector<Value *, 1> Subrange;
-      Subrange.push_back(
-          Builder.getOrCreateSubrange(0, T->getArrayNumElements() - 1));
+        assert(false && "unimplemented");
+      // SmallVector<Value *, 1> Subrange;
+      // Subrange.push_back(
+      //     Builder.getOrCreateSubrange(0, T->getArrayNumElements() - 1));
 
-      N = Builder.createArrayType(Layout.getTypeSizeInBits(T),
-                                  Layout.getPrefTypeAlignment(T),
-                                  getOrCreateType(T->getArrayElementType()),
-                                  Builder.getOrCreateArray(Subrange));
+      // N = Builder.createArrayType(Layout.getTypeSizeInBits(T),
+      //                             Layout.getPrefTypeAlignment(T),
+      //                             getOrCreateType(T->getArrayElementType()),
+      //                             Builder.getOrCreateArray(Subrange));
     } else {
-      int encoding = llvm::dwarf::DW_ATE_signed;
-      if (T->isIntegerTy())
-        encoding = llvm::dwarf::DW_ATE_unsigned;
-      else if (T->isFloatingPointTy())
-        encoding = llvm::dwarf::DW_ATE_float;
+        assert(false && "unimplemented");
+      //int encoding = llvm::dwarf::DW_ATE_signed;
+      //if (T->isIntegerTy())
+      //  encoding = llvm::dwarf::DW_ATE_unsigned;
+      //else if (T->isFloatingPointTy())
+      //  encoding = llvm::dwarf::DW_ATE_float;
 
-      N = Builder.createBasicType(getTypeName(T), T->getPrimitiveSizeInBits(),
-                                  0, encoding);
+      //N = Builder.createBasicType(getTypeName(T), T->getPrimitiveSizeInBits(),
+      //                            0, encoding);
     }
     TypeDescriptors[T] = N;
-    return DIDerivedType(N);
+    return N;
   }
 
   /// Returns a DebugInfo type that represents a function signature for Func.
   DISubroutineType *createFunctionSignature(const Function *Func) {
-    SmallVector<Value *, 4> Params;
-    DIDerivedType ReturnType(getOrCreateType(Func->getReturnType()));
+    SmallVector<Metadata *, 4> Params; // SmallVector<DIType *> does not auto-case to SmallVector<Metadata *>
+    DIType *ReturnType = getOrCreateType(Func->getReturnType());
     Params.push_back(ReturnType);
 
-    const Function::ArgumentListType &Args(Func->getArgumentList());
-    for (Function::ArgumentListType::const_iterator i = Args.begin(),
-                                                    e = Args.end();
-         i != e; ++i) {
-      Type *T(i->getType());
+    for (const Argument &Arg : Func->args()) {
+      Type *T = Arg.getType();
       Params.push_back(getOrCreateType(T));
     }
 
-    DITypeArray ParamArray = Builder.getOrCreateTypeArray(Params);
-    return Builder.createSubroutineType(DIFile(FileNode), ParamArray);
+    DITypeRefArray ParamArray = Builder.getOrCreateTypeArray(Params);
+    return Builder.createSubroutineType(ParamArray);
   }
 
   /// Associates Instruction I with debug location Loc.
   void addDebugLocation(Instruction &I, DebugLoc Loc) {
-    MDNode *MD = Loc.getAsMDNode(I.getContext());
-    I.setMetadata(LLVMContext::MD_dbg, MD);
+    I.setDebugLoc(Loc);
+    //MDNode *MD = Loc.getAsMDNode();
+    //I.setMetadata(LLVMContext::MD_dbg, MD);
   }
 };
 
@@ -476,12 +478,15 @@ bool getSourceInfoFromDI(const Module &M, std::string &Directory,
   if (!CUNode || CUNode->getNumOperands() == 0)
     return false;
 
-  DICompileUnit CU(CUNode->getOperand(0));
-  if (!CU.Verify())
-    return false;
+  // DICompileUnit CU(CUNode->getOperand(0));
+  DICompileUnit *CU = cast<DICompileUnit>(CUNode->getOperand(0));
 
-  Filename = CU.getFilename();
-  Directory = CU.getDirectory();
+  // Verify no longer exists?
+  //if (!CU->Verify())
+  //  return false;
+
+  Filename = CU->getFilename();
+  Directory = CU->getDirectory();
   return true;
 }
 
@@ -553,7 +558,7 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
 
   if (WriteSourceToDisk && (HideDebugIntrinsics || HideDebugMetadata)) {
     VMap.reset(new ValueToValueMapTy);
-    DisplayM.reset(CloneModule(&M, *VMap));
+    DisplayM = CloneModule(&M, *VMap);
 
     if (HideDebugIntrinsics)
       DebugIntrinsicsRemover::process(*DisplayM);
