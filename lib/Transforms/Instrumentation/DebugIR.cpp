@@ -635,8 +635,8 @@ char DebugIR::ID = 0;
 
 } // llvm namespace
 
-INITIALIZE_PASS_BEGIN(DebugIR, "debug-ir", "Enable debugging IR", false, false)
-INITIALIZE_PASS_END(DebugIR, "debug-ir", "Enable debugging IR", false, false)
+INITIALIZE_PASS_BEGIN(DebugIR, "debugir", "Enable debugging IR", false, false)
+INITIALIZE_PASS_END(DebugIR, "debugir", "Enable debugging IR", false, false)
 
 ModulePass *llvm::createDebugIRPass(bool HideDebugIntrinsics,
                                     bool HideDebugMetadata, StringRef Directory,
