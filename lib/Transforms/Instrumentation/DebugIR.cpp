@@ -252,19 +252,21 @@ public:
     }
 
     DebugLoc NewLoc;
-    // DebugLoc NewLoc;
-    // if (!Loc.isUnknown())
-    //   // I had a previous debug location: re-use the DebugLoc
-    //   NewLoc = DebugLoc::get(Line, Col, Loc.getScope(RealInst->getContext()),
-    //                          Loc.getInlinedAt(RealInst->getContext()));
-    // else if (MDNode *scope = findScope(&I))
-    //   NewLoc = DebugLoc::get(Line, Col, scope, nullptr);
-    // else {
-    //   DEBUG(dbgs() << "WARNING: no valid scope for instruction " << &I
-    //                << ". no DebugLoc will be present."
-    //                << "\n");
-    //   return;
-    // }
+    if (Loc)
+        // I had a previous debug location: re-use the DebugLoc
+        NewLoc = DebugLoc::get(Line, Col,
+                //Loc.getScope(RealInst->getContext()),
+                Loc.getScope(),
+                //Loc.getInlinedAt(RealInst->getContext()));
+                Loc.getInlinedAt());
+    else if (DINode *scope = findScope(&I))
+        NewLoc = DebugLoc::get(Line, Col, scope, nullptr);
+    else {
+        DEBUG(dbgs() << "WARNING: no valid scope for instruction " << &I
+                << ". no DebugLoc will be present."
+                << "\n");
+        return;
+    }
 
     addDebugLocation(I, NewLoc);
   }
@@ -327,7 +329,7 @@ private:
                  << "\n");
 
     for (const DISubprogram *S : Finder.subprograms()) {
-        assert(false && "unimplemented");
+        assert(false && "unimplemented subprogram lookup.");
       // if (S->getFunction() == F) {
       //   DEBUG(dbgs() << "Found DISubprogram " << S << " for function "
       //                << S.getFunction() << "\n");
@@ -383,24 +385,23 @@ private:
       return Builder.createUnspecifiedType("void");
     else if (T->isStructTy()) {
         // NOTE: where the fuck does DINodeArray come from?
-      N = Builder.createStructType(
+      DICompositeType *S  = Builder.createStructType(
           LexicalBlockFileNode, T->getStructName(), FileNode,
           /*LineNumber=*/0, Layout.getTypeSizeInBits(T), Layout.getABITypeAlignment(T), /*DIFlags=*/llvm::DINode::FlagZero,
           /*DerivedFrom=*/ nullptr, llvm::DINodeArray()); // filled in later
+      N = S; // the Node _is_ the struct type.
 
       // N is added to the map (early) so that element search below can find it,
       // so as to avoid infinite recursion for structs that contain pointers to
       // their own type.
       TypeDescriptors[T] = N;
-      assert(false && "unimplmented");
-      // DICompositeType StructDescriptor(N);
 
-      // SmallVector<Value *, 4> Elements;
-      // for (unsigned i = 0; i < T->getStructNumElements(); ++i)
-      //   Elements.push_back(getOrCreateType(T->getStructElementType(i)));
+      SmallVector<Metadata *, 4> Elements;  // unfortunately, SmallVector<Type *> does not decay to SmallVector<Metadata *>
 
-      // // set struct elements
-      // StructDescriptor.setArrays(Builder.getOrCreateArray(Elements));
+      for (unsigned i = 0; i < T->getStructNumElements(); ++i)
+          Elements.push_back(getOrCreateType(T->getStructElementType(i)));
+
+      Builder.replaceArrays(S, Builder.getOrCreateArray(Elements));
     } else if (T->isPointerTy()) {
       Type *PointeeTy = T->getPointerElementType();
       if (!(N = getType(PointeeTy)))
@@ -408,7 +409,7 @@ private:
             getOrCreateType(PointeeTy), Layout.getPointerTypeSizeInBits(T),
             Layout.getPrefTypeAlignment(T), /*DWARFAddressSpace=*/ None, getTypeName(T));
     } else if (T->isArrayTy()) {
-        assert(false && "unimplemented");
+        assert(false && "unimplemented arrayty lowering.");
       // SmallVector<Value *, 1> Subrange;
       // Subrange.push_back(
       //     Builder.getOrCreateSubrange(0, T->getArrayNumElements() - 1));
@@ -418,15 +419,15 @@ private:
       //                             getOrCreateType(T->getArrayElementType()),
       //                             Builder.getOrCreateArray(Subrange));
     } else {
-        assert(false && "unimplemented");
-      //int encoding = llvm::dwarf::DW_ATE_signed;
-      //if (T->isIntegerTy())
-      //  encoding = llvm::dwarf::DW_ATE_unsigned;
-      //else if (T->isFloatingPointTy())
-      //  encoding = llvm::dwarf::DW_ATE_float;
+      // assert(false && "unimplemented lowering for other types.");
+      int encoding = llvm::dwarf::DW_ATE_signed;
+      if (T->isIntegerTy())
+        encoding = llvm::dwarf::DW_ATE_unsigned;
+      else if (T->isFloatingPointTy())
+        encoding = llvm::dwarf::DW_ATE_float;
 
-      //N = Builder.createBasicType(getTypeName(T), T->getPrimitiveSizeInBits(),
-      //                            0, encoding);
+      N = Builder.createBasicType(getTypeName(T), T->getPrimitiveSizeInBits(),
+                                  encoding);
     }
     TypeDescriptors[T] = N;
     return N;
@@ -478,7 +479,6 @@ bool getSourceInfoFromDI(const Module &M, std::string &Directory,
   if (!CUNode || CUNode->getNumOperands() == 0)
     return false;
 
-  // DICompileUnit CU(CUNode->getOperand(0));
   DICompileUnit *CU = cast<DICompileUnit>(CUNode->getOperand(0));
 
   // Verify no longer exists?
