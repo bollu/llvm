@@ -108,6 +108,7 @@ void initializeDSELegacyPassPass(PassRegistry&);
 void initializeDataFlowSanitizerPass(PassRegistry&);
 void initializeDeadInstEliminationPass(PassRegistry&);
 void initializeDeadMachineInstructionElimPass(PassRegistry&);
+void initializeDebugIRPass(PassRegistry&);
 void initializeDelinearizationPass(PassRegistry&);
 void initializeDemandedBitsWrapperPassPass(PassRegistry&);
 void initializeDependenceAnalysisPass(PassRegistry&);

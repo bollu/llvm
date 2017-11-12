@@ -494,11 +494,32 @@ bool getSourceInfoFromDI(const Module &M, std::string &Directory,
 
 namespace llvm {
 
+    DebugIR::DebugIR(bool HideDebugIntrinsics, bool HideDebugMetadata,
+            llvm::StringRef Directory, llvm::StringRef Filename)
+        : ModulePass(ID), WriteSourceToDisk(true),
+        HideDebugIntrinsics(HideDebugIntrinsics),
+        HideDebugMetadata(HideDebugMetadata), Directory(Directory),
+        Filename(Filename), GeneratedPath(false), ParsedPath(false) {
+            llvm::initializeDebugIRPass(*PassRegistry::getPassRegistry()); 
+        }
+
+  /// Modify input in-place; do not generate additional files, and do not hide
+  /// any debug intrinsics/metadata that might be present.
+    DebugIR::DebugIR()
+      : ModulePass(ID), WriteSourceToDisk(false), HideDebugIntrinsics(false),
+        HideDebugMetadata(false), GeneratedPath(false), ParsedPath(false) {
+            llvm::initializeDebugIRPass(*PassRegistry::getPassRegistry()); 
+        }
+
+
+
+
 bool DebugIR::getSourceInfo(const Module &M) {
   ParsedPath = getSourceInfoFromDI(M, Directory, Filename) ||
                getSourceInfoFromModule(M, Directory, Filename);
   return ParsedPath;
 }
+
 
 bool DebugIR::updateExtension(StringRef NewExtension) {
   size_t dot = Filename.find_last_of(".");
@@ -609,10 +630,13 @@ bool DebugIR::runOnModule(Module &M, std::string &Path) {
   return result;
 }
 
-} // llvm namespace
 
 char DebugIR::ID = 0;
-INITIALIZE_PASS(DebugIR, "debug-ir", "Enable debugging IR", false, false)
+
+} // llvm namespace
+
+INITIALIZE_PASS_BEGIN(DebugIR, "debug-ir", "Enable debugging IR", false, false)
+INITIALIZE_PASS_END(DebugIR, "debug-ir", "Enable debugging IR", false, false)
 
 ModulePass *llvm::createDebugIRPass(bool HideDebugIntrinsics,
                                     bool HideDebugMetadata, StringRef Directory,
