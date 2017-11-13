@@ -233,7 +233,6 @@ public:
   }
 
   void visitInstruction(Instruction &I) {
-      return;
     DebugLoc Loc(I.getDebugLoc());
 
     /// If a ValueToValueMap is provided, use it to get the real instruction as
@@ -258,22 +257,27 @@ public:
     }
 
     DebugLoc NewLoc;
-    if (Loc)
+    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
+    if (Loc) {
         // I had a previous debug location: re-use the DebugLoc
         NewLoc = DebugLoc::get(Line, Col,
                 //Loc.getScope(RealInst->getContext()),
                 Loc.getScope(),
                 //Loc.getInlinedAt(RealInst->getContext()));
                 Loc.getInlinedAt());
-    else if (DINode *scope = findScope(&I))
+        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
+    } else if (DINode *scope = findScope(&I)) {
+        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
         NewLoc = DebugLoc::get(Line, Col, scope, nullptr);
-    else {
+    } else {
+        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
         DEBUG(dbgs() << "WARNING: no valid scope for instruction " << &I
                 << ". no DebugLoc will be present."
                 << "\n");
         return;
     }
 
+    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
     addDebugLocation(I, NewLoc);
   }
 
@@ -457,9 +461,10 @@ private:
 
   /// Associates Instruction I with debug location Loc.
   void addDebugLocation(Instruction &I, DebugLoc Loc) {
-    I.setDebugLoc(Loc);
-    //MDNode *MD = Loc.getAsMDNode();
-    //I.setMetadata(LLVMContext::MD_dbg, MD);
+      errs() << "adding loc to I: " << I << " | Loc: "; Loc.print(errs()); errs() << "\n";
+      I.setDebugLoc(Loc);
+      //MDNode *MD = Loc.getAsMDNode();
+      //I.setMetadata(LLVMContext::MD_dbg, MD);
   }
 };
 
@@ -611,6 +616,11 @@ bool DebugIR::isMissingPath() { return Filename.empty() || Directory.empty(); }
 bool DebugIR::runOnModule(Module &M) {
     errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
   std::unique_ptr<int> fd;
+
+  // Add the current debug info version into the module.
+  M.addModuleFlag(Module::Warning, "Debug Info Version",
+          DEBUG_METADATA_VERSION);
+
 
   if (isMissingPath() && !getSourceInfo(M)) {
     if (!WriteSourceToDisk) {
