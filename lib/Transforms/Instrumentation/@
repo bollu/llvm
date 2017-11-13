@@ -223,7 +223,7 @@ public:
     bool IsOptimized = false;
 
     DINode::DIFlags FuncFlags = llvm::DINode::FlagPrototyped;
-    DISubprogram *Sub = Builder.createFunction(/*LexicalBlockFileNode*/ FileNode, F.getName(), MangledName, FileNode, Line,
+    DISubprogram *Sub = Builder.createFunction(LexicalBlockFileNode, F.getName(), MangledName, FileNode, Line,
         Sig, /*InternalLinkage=*/Local, /*definition */ IsDefinition, ScopeLine, FuncFlags, IsOptimized);
     F.setSubprogram(Sub);
     DEBUG(dbgs() << "create subprogram mdnode " << *Sub << ": "
@@ -308,7 +308,7 @@ private:
     if (CUToReplace)
       CUToReplace->replaceAllUsesWith(CU);
 
-    // LexicalBlockFileNode = FileNode; // Builder.createLexicalBlockFile(CU, FileNode);
+    LexicalBlockFileNode = Builder.createLexicalBlockFile(CU, FileNode);
   }
 
   /// Returns the MDNode* that represents the DI scope to associate with I
