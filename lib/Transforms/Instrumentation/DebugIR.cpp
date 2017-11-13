@@ -164,8 +164,8 @@ class DIUpdater : public InstVisitor<DIUpdater> {
 
 
   // CU nodes needed when creating DI subprograms
-  DIFile *File;
-  DIScope *Scope;
+  // DIFile *File;
+  // DIScope *Scope;
 
   ValueMap<const Function *, DISubprogram *> SubprogramDescriptors;
   DenseMap<const Type *, DIType *> TypeDescriptors;
@@ -175,8 +175,10 @@ public:
             StringRef Directory = StringRef(), const Module *DisplayM = nullptr,
             const ValueToValueMapTy *VMap = nullptr)
       : Builder(M), Layout(&M), LineTable(DisplayM ? DisplayM : &M), VMap(VMap),
-        Finder(), Filename(Filename), Directory(Directory), File(nullptr), Scope(nullptr) {
+        Finder(), Filename(Filename), Directory(Directory), FileNode(nullptr),
+        LexicalBlockFileNode(nullptr) {
 
+    // Even without finder, this screws up.
     Finder.processModule(M);
     visit(&M);
   }
@@ -192,6 +194,7 @@ public:
   }
 
   void visitFunction(Function &F) {
+      return;
     if (F.isDeclaration() || findDISubprogram(&F))
       return;
 
@@ -219,7 +222,7 @@ public:
     bool IsOptimized = false;
 
     DINode::DIFlags FuncFlags = llvm::DINode::FlagPrototyped;
-    DISubprogram *Sub = Builder.createFunction(Scope, F.getName(), MangledName, File, Line,
+    DISubprogram *Sub = Builder.createFunction(LexicalBlockFileNode, F.getName(), MangledName, FileNode, Line,
         Sig, /*InternalLinkage=*/Local, /*definition */ IsDefinition, ScopeLine, FuncFlags, IsOptimized);
     DEBUG(dbgs() << "create subprogram mdnode " << *Sub << ": "
                  << "\n");
@@ -228,6 +231,7 @@ public:
   }
 
   void visitInstruction(Instruction &I) {
+      return;
     DebugLoc Loc(I.getDebugLoc());
 
     /// If a ValueToValueMap is provided, use it to get the real instruction as
@@ -293,15 +297,16 @@ private:
           "LLVM Version " STR(LLVM_VERSION_MAJOR) "." STR(LLVM_VERSION_MINOR);
     }
 
-    DIFile *File = Builder.createFile(Filename, Directory);
+    //DIFile *File = Builder.createFile(Filename, Directory);
+    FileNode = Builder.createFile(Filename, Directory);
     DICompileUnit *CU =
-        Builder.createCompileUnit(dwarf::DW_LANG_C99, File,
+        Builder.createCompileUnit(dwarf::DW_LANG_C99, FileNode,
                                   Producer, IsOptimized, Flags, RuntimeVersion);
 
     if (CUToReplace)
       CUToReplace->replaceAllUsesWith(CU);
 
-    LexicalBlockFileNode = Builder.createLexicalBlockFile(CU, File);
+    LexicalBlockFileNode = Builder.createLexicalBlockFile(CU, FileNode);
   }
 
   /// Returns the MDNode* that represents the DI scope to associate with I
@@ -540,6 +545,9 @@ void DebugIR::generateFilename(std::unique_ptr<int> &fd) {
   sys::path::remove_filename(PathVec);
   Directory = StringRef(PathVec.data(), PathVec.size());
 
+  errs() << __PRETTY_FUNCTION__ << "Filename: " << Filename << "\n";
+  errs() << __PRETTY_FUNCTION__ << "Directory: " << Directory << "\n";
+
   GeneratedPath = true;
 }
 
@@ -575,8 +583,11 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
     // no functions -- no debug info needed
     return;
 
+  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
+
   std::unique_ptr<ValueToValueMapTy> VMap;
 
+  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
   if (WriteSourceToDisk && (HideDebugIntrinsics || HideDebugMetadata)) {
     VMap.reset(new ValueToValueMapTy);
     DisplayM = CloneModule(&M, *VMap);
@@ -588,39 +599,53 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
       DebugMetadataRemover::process(*DisplayM);
   }
 
+  // DIUpdater screws up.
+  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
   DIUpdater R(M, Filename, Directory, DisplayM.get(), VMap.get());
 }
 
 bool DebugIR::isMissingPath() { return Filename.empty() || Directory.empty(); }
 
 bool DebugIR::runOnModule(Module &M) {
+    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
   std::unique_ptr<int> fd;
 
   if (isMissingPath() && !getSourceInfo(M)) {
-    if (!WriteSourceToDisk)
+    if (!WriteSourceToDisk) {
+        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
       report_fatal_error("DebugIR unable to determine file name in input. "
                          "Ensure Module contains an identifier, a valid "
                          "DICompileUnit, or construct DebugIR with "
                          "non-empty Filename/Directory parameters.");
-    else
+    } else {
+        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
       generateFilename(fd);
+    }
   }
 
   if (!GeneratedPath && WriteSourceToDisk)
     updateExtension(".debug-ll");
 
+  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
+  errs() << "- Filename: " << Filename << " | Directory: " << Directory << "\n";
+
   // Clear line numbers. Keep debug info (if any) if we were able to read the
   // file name from the DICompileUnit descriptor.
   DebugMetadataRemover::process(M, !ParsedPath);
+  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
 
   std::unique_ptr<Module> DisplayM;
-  createDebugInfo(M, DisplayM);
+  createDebugInfo(M, DisplayM); // This is fucked up.
   if (WriteSourceToDisk) {
     Module *OutputM = DisplayM.get() ? DisplayM.get() : &M;
     writeDebugBitcode(OutputM, fd.get());
   }
+  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
 
+  errs() << "\n\n\nmodule:\n======\n";
   DEBUG(M.dump());
+  errs() << "\n=============\n";
+  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
   return true;
 }
 
