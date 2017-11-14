@@ -339,13 +339,14 @@ private:
                  << " subprogram nodes"
                  << "\n");
 
-    for (const DISubprogram *S : Finder.subprograms()) {
-        assert(false && "unimplemented subprogram lookup.");
-      // if (S->getFunction() == F) {
-      //   DEBUG(dbgs() << "Found DISubprogram " << S << " for function "
-      //                << S.getFunction() << "\n");
-      //   return S;
-      // }
+    // TODO: When would this even be reached?
+    for (DISubprogram *S : Finder.subprograms()) {
+        // TODO: Is describes correct?
+      if (S->describes(F)) {
+        DEBUG(dbgs() << "Found DISubprogram " << S << " for function "
+                     << F->getName() << "\n");
+        return S;
+      }
     }
     DEBUG(dbgs() << "unable to find DISubprogram node for function "
                  << F->getName().str() << "\n");
