@@ -420,15 +420,16 @@ private:
             getOrCreateType(PointeeTy), Layout.getPointerTypeSizeInBits(T),
             Layout.getPrefTypeAlignment(T), /*DWARFAddressSpace=*/ None, getTypeName(T));
     } else if (T->isArrayTy()) {
-        assert(false && "unimplemented arrayty lowering.");
-      // SmallVector<Value *, 1> Subrange;
-      // Subrange.push_back(
-      //     Builder.getOrCreateSubrange(0, T->getArrayNumElements() - 1));
+       // assert(false && "unimplemented arrayty lowering.");
+      SmallVector<Metadata *, 4> Subscripts;  // unfortunately, SmallVector<Type *> does not decay to SmallVector<Metadata *>
 
-      // N = Builder.createArrayType(Layout.getTypeSizeInBits(T),
-      //                             Layout.getPrefTypeAlignment(T),
-      //                             getOrCreateType(T->getArrayElementType()),
-      //                             Builder.getOrCreateArray(Subrange));
+       Subscripts.push_back(
+           Builder.getOrCreateSubrange(0, T->getArrayNumElements() - 1));
+
+       N = Builder.createArrayType(Layout.getTypeSizeInBits(T),
+                                   Layout.getPrefTypeAlignment(T),
+                                   getOrCreateType(T->getArrayElementType()),
+                                   Builder.getOrCreateArray(Subscripts));
     } else {
       // assert(false && "unimplemented lowering for other types.");
       int encoding = llvm::dwarf::DW_ATE_signed;
