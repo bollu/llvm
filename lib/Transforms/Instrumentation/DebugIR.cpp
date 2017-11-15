@@ -94,6 +94,7 @@ class DebugIntrinsicsRemover : public InstVisitor<DebugIntrinsicsRemover> {
 
 public:
   static void process(Module &M) {
+
     DebugIntrinsicsRemover Remover;
     Remover.visit(&M);
   }
@@ -109,6 +110,26 @@ class DebugMetadataRemover : public InstVisitor<DebugMetadataRemover> {
 
 public:
   static void process(Module &M, bool RemoveNamedInfo = true) {
+      if(NamedMDNode *ModuleFlags = M.getModuleFlagsMetadata()) {
+          SmallVector<MDNode *, 4> NewModuleFlags;
+
+          for(unsigned i = 0; i < ModuleFlags->getNumOperands(); i++) {
+              MDNode *Node = ModuleFlags->getOperand(i);
+              // is this assumption correct?
+              MDString *Name =  cast<MDString>(Node->getOperand(1));
+
+              // we do not want to keep the `Debug Info Version` node.
+              if (Name->getString() == "Debug Info Version") continue;
+              NewModuleFlags.push_back(Node);
+          }
+          ModuleFlags->clearOperands();
+          for(MDNode *M : NewModuleFlags) {
+              ModuleFlags->addOperand(M);
+          }
+
+      }
+
+
     DebugMetadataRemover Remover(RemoveNamedInfo);
     Remover.run(&M);
   }
@@ -162,6 +183,8 @@ class DIUpdater : public InstVisitor<DIUpdater> {
   DIFile *FileNode;
   DILexicalBlockFile *LexicalBlockFileNode;
 
+  Module &M;
+
 
   // CU nodes needed when creating DI subprograms
   // DIFile *File;
@@ -176,7 +199,7 @@ public:
             const ValueToValueMapTy *VMap = nullptr)
       : Builder(M), Layout(&M), LineTable(DisplayM ? DisplayM : &M), VMap(VMap),
         Finder(), Filename(Filename), Directory(Directory), FileNode(nullptr),
-        LexicalBlockFileNode(nullptr) {
+        LexicalBlockFileNode(nullptr), M(M) {
 
     // Even without finder, this screws up.
     Finder.processModule(M);
@@ -296,14 +319,21 @@ private:
           "LLVM Version " STR(LLVM_VERSION_MAJOR) "." STR(LLVM_VERSION_MINOR);
     }
 
-    //DIFile *File = Builder.createFile(Filename, Directory);
     FileNode = Builder.createFile(Filename, Directory);
     DICompileUnit *CU =
         Builder.createCompileUnit(dwarf::DW_LANG_C99, FileNode,
                                   Producer, IsOptimized, Flags, RuntimeVersion);
 
-    if (CUToReplace)
-      CUToReplace->replaceAllUsesWith(CU);
+    errs() << "NOTE: not replacing old CU\n";
+    NamedMDNode *NMD = M.getOrInsertNamedMetadata("llvm.dbg.cu");
+    NMD->clearOperands();
+    NMD->addOperand(CU);
+
+    //if (CUToReplace) {
+    //    errs() << "CUToReplace: " << *CUToReplace << "\n";
+    //    errs() << "CU: " << *CU << "\n";
+    //  // CUToReplace->replaceAllUsesWith(CU);
+    //};
 
     // LexicalBlockFileNode = FileNode; // Builder.createLexicalBlockFile(CU, FileNode);
   }
@@ -594,7 +624,6 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
       DebugMetadataRemover::process(*DisplayM);
   }
 
-  // DIUpdater screws up.
   DIUpdater R(M, Filename, Directory, DisplayM.get(), VMap.get());
 }
 
@@ -603,24 +632,23 @@ bool DebugIR::isMissingPath() { return Filename.empty() || Directory.empty(); }
 bool DebugIR::runOnModule(Module &M) {
   std::unique_ptr<int> fd;
 
-  // Add the current debug info version into the module.
-  M.addModuleFlag(Module::Warning, "Debug Info Version",
-          DEBUG_METADATA_VERSION);
 
 
   if (isMissingPath() && !getSourceInfo(M)) {
     if (!WriteSourceToDisk) {
-      report_fatal_error("DebugIR unable to determine file name in input. "
+      errs()<< "DebugIR unable to determine file name in input. "
                          "Ensure Module contains an identifier, a valid "
                          "DICompileUnit, or construct DebugIR with "
-                         "non-empty Filename/Directory parameters.");
+                         "non-empty Filename/Directory parameters.";
+      return false;
+
     } else {
       generateFilename(fd);
     }
   }
 
-  assert(Filename != "");
-  assert(Directory != NULL);
+  // assert(Filename != "");
+  // assert(Directory != "");
 
 
   if (!GeneratedPath && WriteSourceToDisk)
@@ -631,6 +659,11 @@ bool DebugIR::runOnModule(Module &M) {
   // Clear line numbers. Keep debug info (if any) if we were able to read the
   // file name from the DICompileUnit descriptor.
   DebugMetadataRemover::process(M, !ParsedPath);
+
+
+  // Add the current debug info version into the module.
+  M.addModuleFlag(Module::Warning, "Debug Info Version",
+          DEBUG_METADATA_VERSION);
 
   std::unique_ptr<Module> DisplayM;
   createDebugInfo(M, DisplayM); // This is fucked up.
