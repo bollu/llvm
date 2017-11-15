@@ -197,8 +197,6 @@ public:
     if (F.isDeclaration() || findDISubprogram(&F))
       return;
 
-    errs() << __PRETTY_FUNCTION__ << "\n";
-
     StringRef MangledName = F.getName();
     DISubroutineType *Sig = createFunctionSignature(&F);
 
@@ -257,7 +255,6 @@ public:
     }
 
     DebugLoc NewLoc;
-    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
     if (Loc) {
         // I had a previous debug location: re-use the DebugLoc
         NewLoc = DebugLoc::get(Line, Col,
@@ -265,19 +262,15 @@ public:
                 Loc.getScope(),
                 //Loc.getInlinedAt(RealInst->getContext()));
                 Loc.getInlinedAt());
-        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
     } else if (DINode *scope = findScope(&I)) {
-        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
         NewLoc = DebugLoc::get(Line, Col, scope, nullptr);
     } else {
-        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
         DEBUG(dbgs() << "WARNING: no valid scope for instruction " << &I
                 << ". no DebugLoc will be present."
                 << "\n");
         return;
     }
 
-    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
     addDebugLocation(I, NewLoc);
   }
 
@@ -463,7 +456,6 @@ private:
 
   /// Associates Instruction I with debug location Loc.
   void addDebugLocation(Instruction &I, DebugLoc Loc) {
-      errs() << "adding loc to I: " << I << " | Loc: "; Loc.print(errs()); errs() << "\n";
       I.setDebugLoc(Loc);
       //MDNode *MD = Loc.getAsMDNode();
       //I.setMetadata(LLVMContext::MD_dbg, MD);
@@ -554,9 +546,6 @@ void DebugIR::generateFilename(std::unique_ptr<int> &fd) {
   sys::path::remove_filename(PathVec);
   Directory = StringRef(PathVec.data(), PathVec.size());
 
-  errs() << __PRETTY_FUNCTION__ << "Filename: " << Filename << "\n";
-  errs() << __PRETTY_FUNCTION__ << "Directory: " << Directory << "\n";
-
   GeneratedPath = true;
 }
 
@@ -592,11 +581,8 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
     // no functions -- no debug info needed
     return;
 
-  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
-
   std::unique_ptr<ValueToValueMapTy> VMap;
 
-  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
   if (WriteSourceToDisk && (HideDebugIntrinsics || HideDebugMetadata)) {
     VMap.reset(new ValueToValueMapTy);
     DisplayM = CloneModule(&M, *VMap);
@@ -609,14 +595,12 @@ void DebugIR::createDebugInfo(Module &M, std::unique_ptr<Module> &DisplayM) {
   }
 
   // DIUpdater screws up.
-  errs() << __PRETTY_FUNCTION__<< ":" << __LINE__ << "\n";
   DIUpdater R(M, Filename, Directory, DisplayM.get(), VMap.get());
 }
 
 bool DebugIR::isMissingPath() { return Filename.empty() || Directory.empty(); }
 
 bool DebugIR::runOnModule(Module &M) {
-    errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
   std::unique_ptr<int> fd;
 
   // Add the current debug info version into the module.
@@ -626,27 +610,27 @@ bool DebugIR::runOnModule(Module &M) {
 
   if (isMissingPath() && !getSourceInfo(M)) {
     if (!WriteSourceToDisk) {
-        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
       report_fatal_error("DebugIR unable to determine file name in input. "
                          "Ensure Module contains an identifier, a valid "
                          "DICompileUnit, or construct DebugIR with "
                          "non-empty Filename/Directory parameters.");
     } else {
-        errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
       generateFilename(fd);
     }
   }
 
+  assert(Filename != "");
+  assert(Directory != NULL);
+
+
   if (!GeneratedPath && WriteSourceToDisk)
     updateExtension(".debug-ll");
 
-  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
-  errs() << "- Filename: " << Filename << " | Directory: " << Directory << "\n";
+  DEBUG(dbgs() << "- Filename: " << Filename << " | Directory: " << Directory << "\n");
 
   // Clear line numbers. Keep debug info (if any) if we were able to read the
   // file name from the DICompileUnit descriptor.
   DebugMetadataRemover::process(M, !ParsedPath);
-  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
 
   std::unique_ptr<Module> DisplayM;
   createDebugInfo(M, DisplayM); // This is fucked up.
@@ -654,12 +638,7 @@ bool DebugIR::runOnModule(Module &M) {
     Module *OutputM = DisplayM.get() ? DisplayM.get() : &M;
     writeDebugBitcode(OutputM, fd.get());
   }
-  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
 
-  errs() << "\n\n\nmodule:\n======\n";
-  DEBUG(M.dump());
-  errs() << "\n=============\n";
-  errs() << __PRETTY_FUNCTION__ << ":" << __LINE__ << "\n";
   return true;
 }
 
