@@ -324,7 +324,6 @@ private:
         Builder.createCompileUnit(dwarf::DW_LANG_C99, FileNode,
                                   Producer, IsOptimized, Flags, RuntimeVersion);
 
-    errs() << "NOTE: not replacing old CU\n";
     NamedMDNode *NMD = M.getOrInsertNamedMetadata("llvm.dbg.cu");
     NMD->clearOperands();
     NMD->addOperand(CU);
