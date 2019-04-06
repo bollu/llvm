@@ -34,7 +34,6 @@
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CallSite.h"
@@ -57,8 +56,10 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ImportedFunctionsInliningStatistics.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <algorithm>
 #include <cassert>
@@ -158,9 +159,9 @@ using InlinedArrayAllocasTy = DenseMap<ArrayType *, std::vector<AllocaInst *>>;
 /// *actually make it to the backend*, which is really what we want.
 ///
 /// Because we don't have this information, we do this simple and useful hack.
-static void mergeInlinedArrayAllocas(
-    Function *Caller, InlineFunctionInfo &IFI,
-    InlinedArrayAllocasTy &InlinedArrayAllocas, int InlineHistory) {
+static void mergeInlinedArrayAllocas(Function *Caller, InlineFunctionInfo &IFI,
+                                     InlinedArrayAllocasTy &InlinedArrayAllocas,
+                                     int InlineHistory) {
   SmallPtrSet<AllocaInst *, 16> UsedAllocas;
 
   // When processing our SCC, check to see if CS was inlined from some other
@@ -524,6 +525,15 @@ static void setInlineRemark(CallSite &CS, StringRef message) {
   CS.addAttribute(AttributeList::FunctionIndex, attr);
 }
 
+// std::tuple<BasicBlock *, BasicBlock *, BasicBlock *>
+// isolateInstInNewBB(Instruction *I) {
+//  errs() << __FUNCTION__ << ":" << __LINE__ << "\n";
+//  BasicBlock *A = I->getParent();
+//  BasicBlock *B = SplitBlock(A, I);
+//  BasicBlock *C = SplitBlock(B, B->getFirstNonPHI()->getNextNode());
+//  return std::make_tuple(A, B, C);
+//}
+
 static bool
 inlineCallsImpl(CallGraphSCC &SCC, CallGraph &CG,
                 std::function<AssumptionCache &(Function &)> GetAssumptionCache,
@@ -569,7 +579,7 @@ inlineCallsImpl(CallGraphSCC &SCC, CallGraph &CG,
         // If this is a direct call to an external function, we can never inline
         // it.  If it is an indirect call, inlining may resolve it to be a
         // direct call, so we keep it.
-        if (Function *Callee = CS.getCalledFunction())
+        if (Function *Callee = CS.getCalledFunction()) {
           if (Callee->isDeclaration()) {
             using namespace ore;
 
@@ -583,6 +593,16 @@ inlineCallsImpl(CallGraphSCC &SCC, CallGraph &CG,
             });
             continue;
           }
+          // THIS FUCKS UP IF I CALL IT HERE
+          // always inlined function, break BB up
+          // if (Callee->hasFnAttribute(Attribute::AlwaysInline)) {
+          //   isolateInstInNewBB(&I);
+          //   errs() << "----\n";
+          //   errs() << *I.getParent()->getParent() << "\n";
+          //   errs() << "----\n";
+          //   CS = CallSite(cast<Value>(&I));
+          // }
+        }
 
         CallSites.push_back(std::make_pair(CS, -1));
       }
@@ -761,9 +781,10 @@ bool LegacyInlinerBase::inlineCalls(CallGraphSCC &SCC) {
   auto GetAssumptionCache = [&](Function &F) -> AssumptionCache & {
     return ACT->getAssumptionCache(F);
   };
-  return inlineCallsImpl(SCC, CG, GetAssumptionCache, PSI, TLI, InsertLifetime,
-                         [this](CallSite CS) { return getInlineCost(CS); },
-                         LegacyAARGetter(*this), ImportedFunctionsStats);
+  return inlineCallsImpl(
+      SCC, CG, GetAssumptionCache, PSI, TLI, InsertLifetime,
+      [this](CallSite CS) { return getInlineCost(CS); }, LegacyAARGetter(*this),
+      ImportedFunctionsStats);
 }
 
 /// Remove now-dead linkonce functions at the end of
@@ -988,8 +1009,7 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
     // node however because those functions aren't going to be mutated by this
     // pass.
     FunctionAnalysisManager &FAM =
-        AM.getResult<FunctionAnalysisManagerCGSCCProxy>(*C, CG)
-            .getManager();
+        AM.getResult<FunctionAnalysisManagerCGSCCProxy>(*C, CG).getManager();
 
     // Get the remarks emission analysis for the caller.
     auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(F);
@@ -1205,8 +1225,7 @@ PreservedAnalyses InlinerPass::run(LazyCallGraph::SCC &InitialC,
     // function there. Also, cclear out any cached analyses.
     auto &DeadC = *CG.lookupSCC(*CG.lookup(*DeadF));
     FunctionAnalysisManager &FAM =
-        AM.getResult<FunctionAnalysisManagerCGSCCProxy>(DeadC, CG)
-            .getManager();
+        AM.getResult<FunctionAnalysisManagerCGSCCProxy>(DeadC, CG).getManager();
     FAM.clear(*DeadF, DeadF->getName());
     AM.clear(DeadC, DeadC.getName());
     auto &DeadRC = DeadC.getOuterRefSCC();

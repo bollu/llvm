@@ -294,7 +294,7 @@ void PruningFunctionCloner::CloneBlock(const BasicBlock *BB,
   // Nope, clone it now.
   BasicBlock *NewBB;
   BBEntry = NewBB = BasicBlock::Create(BB->getContext());
-  if (BB->hasName()) NewBB->setName(BB->getName()+NameSuffix);
+  if (BB->hasName()) NewBB->setName(BB->getParent()->getName() + ":" + BB->getName()+NameSuffix);
 
   // It is only legal to clone a function if a block address within that
   // function is never referenced outside of the function.  Given that, we

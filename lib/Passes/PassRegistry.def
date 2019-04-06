@@ -237,6 +237,7 @@ FUNCTION_PASS("transform-warning", WarnMissedTransformationsPass())
 FUNCTION_PASS("asan", AddressSanitizerPass(false, false, false))
 FUNCTION_PASS("msan", MemorySanitizerPass({}))
 FUNCTION_PASS("tsan", ThreadSanitizerPass())
+FUNCTION_PASS("always-inline-isolator", AlwaysInlineIsolatorPass())
 #undef FUNCTION_PASS
 
 #ifndef FUNCTION_PASS_WITH_PARAMS

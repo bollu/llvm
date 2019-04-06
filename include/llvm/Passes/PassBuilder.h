@@ -33,17 +33,16 @@ class ModuleSummaryIndex;
 struct PGOOptions {
   PGOOptions(std::string ProfileGenFile = "", std::string ProfileUseFile = "",
              std::string SampleProfileFile = "",
-             std::string ProfileRemappingFile = "",
-             bool RunProfileGen = false, bool SamplePGOSupport = false)
+             std::string ProfileRemappingFile = "", bool RunProfileGen = false,
+             bool SamplePGOSupport = false)
       : ProfileGenFile(ProfileGenFile), ProfileUseFile(ProfileUseFile),
         SampleProfileFile(SampleProfileFile),
         ProfileRemappingFile(ProfileRemappingFile),
         RunProfileGen(RunProfileGen),
         SamplePGOSupport(SamplePGOSupport || !SampleProfileFile.empty()) {
-    assert((RunProfileGen ||
-            !SampleProfileFile.empty() ||
-            !ProfileUseFile.empty() ||
-            SamplePGOSupport) && "Illegal PGOOptions.");
+    assert((RunProfileGen || !SampleProfileFile.empty() ||
+            !ProfileUseFile.empty() || SamplePGOSupport) &&
+           "Illegal PGOOptions.");
   }
   std::string ProfileGenFile;
   std::string ProfileUseFile;
@@ -200,10 +199,10 @@ public:
 
   /// Registers all available CGSCC analysis passes.
   ///
-  /// This is an interface that can be used to populate a \c CGSCCAnalysisManager
-  /// with all registered CGSCC analyses. Callers can still manually register any
-  /// additional analyses. Callers can also pre-register analyses and this will
-  /// not override those.
+  /// This is an interface that can be used to populate a \c
+  /// CGSCCAnalysisManager with all registered CGSCC analyses. Callers can still
+  /// manually register any additional analyses. Callers can also pre-register
+  /// analyses and this will not override those.
   void registerCGSCCAnalyses(CGSCCAnalysisManager &CGAM);
 
   /// Registers all available function analysis passes.
@@ -235,10 +234,8 @@ public:
   /// build them.
   ///
   /// \p Phase indicates the current ThinLTO phase.
-  FunctionPassManager
-  buildFunctionSimplificationPipeline(OptimizationLevel Level,
-                                      ThinLTOPhase Phase,
-                                      bool DebugLogging = false);
+  FunctionPassManager buildFunctionSimplificationPipeline(
+      OptimizationLevel Level, ThinLTOPhase Phase, bool DebugLogging = false);
 
   /// Construct the core LLVM module canonicalization and simplification
   /// pipeline.
@@ -256,8 +253,7 @@ public:
   ///
   /// \p Phase indicates the current ThinLTO phase.
   ModulePassManager
-  buildModuleSimplificationPipeline(OptimizationLevel Level,
-                                    ThinLTOPhase Phase,
+  buildModuleSimplificationPipeline(OptimizationLevel Level, ThinLTOPhase Phase,
                                     bool DebugLogging = false);
 
   /// Construct the core LLVM module optimization pipeline.
@@ -608,8 +604,7 @@ private:
 
   void addPGOInstrPasses(ModulePassManager &MPM, bool DebugLogging,
                          OptimizationLevel Level, bool RunProfileGen,
-                         std::string ProfileGenFile,
-                         std::string ProfileUseFile,
+                         std::string ProfileGenFile, std::string ProfileUseFile,
                          std::string ProfileRemappingFile);
 
   void invokePeepholeEPCallbacks(FunctionPassManager &, OptimizationLevel);
@@ -710,6 +705,6 @@ bool parseAnalysisUtilityPasses(
 
   return false;
 }
-}
+} // namespace llvm
 
 #endif

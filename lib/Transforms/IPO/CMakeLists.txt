@@ -1,5 +1,6 @@
 add_llvm_library(LLVMipo
   AlwaysInliner.cpp
+  AlwaysInlineIsolator.cpp
   ArgumentPromotion.cpp
   BarrierNoopPass.cpp
   BlockExtractor.cpp

@@ -36,6 +36,7 @@ void llvm::initializeIPO(PassRegistry &Registry) {
   initializeHotColdSplittingLegacyPassPass(Registry);
   initializeIPCPPass(Registry);
   initializeAlwaysInlinerLegacyPassPass(Registry);
+  initializeAlwaysInlineIsolatorPass(Registry);
   initializeSimpleInlinerPass(Registry);
   initializeInferFunctionAttrsLegacyPassPass(Registry);
   initializeInternalizeLegacyPassPass(Registry);
@@ -61,9 +62,7 @@ void llvm::initializeIPO(PassRegistry &Registry) {
   initializeWholeProgramDevirtPass(Registry);
 }
 
-void LLVMInitializeIPO(LLVMPassRegistryRef R) {
-  initializeIPO(*unwrap(R));
-}
+void LLVMInitializeIPO(LLVMPassRegistryRef R) { initializeIPO(*unwrap(R)); }
 
 void LLVMAddArgumentPromotionPass(LLVMPassManagerRef PM) {
   unwrap(PM)->add(createArgumentPromotionPass());

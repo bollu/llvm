@@ -30,6 +30,8 @@ class BasicBlock;
 class GlobalValue;
 class raw_ostream;
 
+FunctionPass *createAlwaysInlineIsolatorPass();
+
 //===----------------------------------------------------------------------===//
 //
 // These functions removes symbols from functions and modules.  If OnlyDebugInfo
@@ -86,8 +88,8 @@ ModulePass *createEliminateAvailableExternallyPass();
 /// the specified global values. Otherwise, it deletes as much of the module as
 /// possible, except for the global values specified.
 ///
-ModulePass *createGVExtractionPass(std::vector<GlobalValue*>& GVs, bool
-                                   deleteFn = false);
+ModulePass *createGVExtractionPass(std::vector<GlobalValue *> &GVs,
+                                   bool deleteFn = false);
 
 //===----------------------------------------------------------------------===//
 /// This pass performs iterative function importing from other modules.
@@ -270,6 +272,6 @@ ModulePass *createSampleProfileLoaderPass(StringRef Name);
 ModulePass *createWriteThinLTOBitcodePass(raw_ostream &Str,
                                           raw_ostream *ThinLinkOS = nullptr);
 
-} // End llvm namespace
+} // namespace llvm
 
 #endif
